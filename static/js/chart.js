@@ -280,10 +280,18 @@ const BMChart = (function () {
       const text = at.label || maturityLabel(at.maturity);
       const x = plot.x(at.maturity);
       const half = estimateTextWidth(text) / 2 + 4;   // 좌우 4px 여백
-      if (placed.some((span) => x - half < span.right && x + half > span.left)) return;
-      placed.push({ left: x - half, right: x + half });
+      // 양 끝 라벨을 가운데 정렬하면 플롯 밖으로 삐져나가 y축 눈금(왼쪽)이나
+      // 컨테이너 경계(오른쪽)와 부딪힌다. 끝에서는 안쪽으로 붙인다.
+      const overflowsLeft = x - half < plot.left;
+      const overflowsRight = x + half > plot.left + plot.width;
+      const anchor = overflowsLeft ? 'start' : overflowsRight ? 'end' : 'middle';
+      const span = anchor === 'start' ? { left: x, right: x + half * 2 }
+        : anchor === 'end' ? { left: x - half * 2, right: x }
+        : { left: x - half, right: x + half };
+      if (placed.some((used) => span.left < used.right && span.right > used.left)) return;
+      placed.push(span);
       const node = el('text', {
-        class: 'c-axis-text', x, y: plot.top + plot.height + 14, 'text-anchor': 'middle',
+        class: 'c-axis-text', x, y: plot.top + plot.height + 14, 'text-anchor': anchor,
       });
       node.textContent = text;
       svg.appendChild(node);
