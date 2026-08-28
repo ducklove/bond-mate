@@ -144,3 +144,25 @@ def test_finance_pi_토큰이_없으면_헤더_없음(monkeypatch):
     monkeypatch.delenv("FINANCE_PI_API_TOKEN", raising=False)
     monkeypatch.delenv("CLOSE_PRICE_API_TOKEN", raising=False)
     assert finance_pi._headers() is None
+
+
+def test_finance_pi_빈_환경변수는_기본값으로_돌아간다(monkeypatch):
+    """GitHub Actions 는 정의 안 된 vars.X 를 빈 문자열로 넘긴다.
+
+    그대로 쓰면 base_url 이 "" 가 돼 스킴 없는 URL 로 요청이 나간다.
+    """
+    monkeypatch.setenv("FINANCE_PI_BASE_URL", "")
+    monkeypatch.setenv("FINANCE_PI_TIMEOUT", "")
+    monkeypatch.setenv("FINANCE_PI_ENABLED", "")
+
+    assert finance_pi.base_url() == finance_pi.DEFAULT_BASE_URL
+    assert finance_pi._timeout() == 20
+    assert finance_pi.enabled() is True
+
+
+def test_finance_pi_환경변수_설정값이_기본값을_이긴다(monkeypatch):
+    monkeypatch.setenv("FINANCE_PI_BASE_URL", "http://192.168.68.84:8400/")
+    monkeypatch.setenv("FINANCE_PI_MAX_STALE_DAYS", "3")
+
+    assert finance_pi.base_url() == "http://192.168.68.84:8400"
+    assert finance_pi._max_stale_days() == 3

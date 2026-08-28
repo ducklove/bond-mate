@@ -78,24 +78,34 @@ FX_SERIES = {
 }
 
 
+def _env(name: str, default: str) -> str:
+    """설정되지 않은 것과 **빈 값으로 설정된 것**을 같게 본다.
+
+    GitHub Actions 는 정의되지 않은 ``vars.X`` 를 빈 문자열로 치환한다. 그걸
+    그대로 쓰면 base_url 이 "" 가 돼 ``/api/macro/rates`` 같은 스킴 없는 URL 로
+    요청이 나간다 — 기본값이 있으나 마나가 된다.
+    """
+    return (os.getenv(name) or "").strip() or default
+
+
 def base_url() -> str:
-    return os.getenv("FINANCE_PI_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
+    return _env("FINANCE_PI_BASE_URL", DEFAULT_BASE_URL).rstrip("/")
 
 
 def enabled() -> bool:
-    return os.getenv("FINANCE_PI_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+    return _env("FINANCE_PI_ENABLED", "1").lower() not in {"0", "false", "no", "off"}
 
 
 def _timeout() -> int:
     try:
-        return max(1, int(os.getenv("FINANCE_PI_TIMEOUT", "20")))
+        return max(1, int(_env("FINANCE_PI_TIMEOUT", "20")))
     except ValueError:
         return 20
 
 
 def _max_stale_days() -> int:
     try:
-        return max(1, int(os.getenv("FINANCE_PI_MAX_STALE_DAYS", "10")))
+        return max(1, int(_env("FINANCE_PI_MAX_STALE_DAYS", "10")))
     except ValueError:
         return 10
 
