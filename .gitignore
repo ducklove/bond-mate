@@ -8,3 +8,4 @@ _site/
 
 # 생성 데이터는 data 전용 브랜치에 산다 (코드 히스토리 오염 방지)
 /data/*.json
+/.claude/

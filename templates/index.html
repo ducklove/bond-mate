@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>bond-mate — 전 세계 금리·환율·채권</title>
+<meta name="description" content="각국 기준금리와 만기별 국채, 원화·주요 통화 환율, 신용등급별 회사채, 대형 발행사의 채권 발행 조달금리를 한곳에서 봅니다.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="stylesheet" href="static/css/bondmate.css">
+</head>
+<body>
+
+<!-- 임베드(?embed=…)일 때는 헤더·탭이 숨는다. bondmate.css 의 body.is-embed 참고 -->
+<header class="app-head">
+  <div class="app-head-inner">
+    <h1 class="brand"><span class="brand-mark">📈</span> bond-mate</h1>
+    <p class="brand-sub">전 세계 금리 · 환율 · 국채 · 회사채</p>
+    <div class="head-meta">
+      <span id="generatedAt" class="stamp">불러오는 중…</span>
+      <button id="themeToggle" class="ghost-btn" type="button" title="테마 전환">🌗</button>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+</header>
+
+<main id="app" class="app">
+  <div class="loading" id="loading">데이터를 불러오는 중…</div>
+</main>
+
+<footer class="app-foot">
+  <p>
+    출처: <span id="sourceList">—</span>.
+    금리·수익률은 연 %, 스프레드는 bp. 투자 판단의 근거로 쓰기 전에 원 출처를 확인하세요.
+  </p>
+  <p class="foot-links">
+    <a href="https://github.com/ducklove/bond-mate" rel="noopener">GitHub</a>
+  </p>
+</footer>
+
+<script src="static/js/util.js" defer></script>
+<script src="static/js/chart.js" defer></script>
+<script src="static/js/store.js" defer></script>
+<script src="static/js/views-common.js" defer></script>
+<script src="static/js/views-rates.js" defer></script>
+<script src="static/js/views-fx.js" defer></script>
+<script src="static/js/views-credit.js" defer></script>
+<script src="static/js/views-issuance.js" defer></script>
+<script src="static/js/app.js" defer></script>
+</body>
+</html>
