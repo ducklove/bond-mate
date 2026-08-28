@@ -103,10 +103,12 @@ FX_RAW_SERIES = {
 }
 
 
-def fetch_series(fred_id: str) -> dict[str, float]:
-    """FRED 시리즈 하나의 전체 히스토리. 결측(``.``)은 버린다."""
-    resp = fetch(CSV_URL, params={"id": fred_id})
-    reader = csv.reader(io.StringIO(resp.text))
+def _parse_csv_text(text: str, fred_id: str) -> dict[str, float]:
+    """``observation_date,<시리즈>`` CSV → ``{날짜: 값}``. 결측(``.``)은 버린다.
+
+    FRED 가 오류를 HTML 로 돌려주는 경우가 있어 헤더로 형식을 먼저 확인한다.
+    """
+    reader = csv.reader(io.StringIO(text))
     try:
         header = next(reader)
     except StopIteration as exc:
@@ -128,6 +130,11 @@ def fetch_series(fred_id: str) -> dict[str, float]:
     if not out:
         raise SourceError(f"FRED {fred_id}: 유효 관측치 없음")
     return out
+
+
+def fetch_series(fred_id: str) -> dict[str, float]:
+    """FRED 시리즈 하나의 전체 히스토리."""
+    return _parse_csv_text(fetch(CSV_URL, params={"id": fred_id}).text, fred_id)
 
 
 def _collect(mapping: dict[str, str]) -> dict[str, dict[str, float]]:
