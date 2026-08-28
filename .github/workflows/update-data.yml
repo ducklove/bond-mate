@@ -91,10 +91,12 @@ jobs:
           fi
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          # data 브랜치가 있으면 그 위에, 없으면(최초 실행) 빈 히스토리로 시작한다.
+          # --orphan 과 --detach 는 함께 쓸 수 없어 분기해야 한다.
           if git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
             git worktree add --detach /tmp/data-wt FETCH_HEAD
           else
-            git worktree add --detach --orphan /tmp/data-wt
+            git worktree add --orphan -b data-init /tmp/data-wt
           fi
           mkdir -p /tmp/data-wt/data
           cp data/*.json /tmp/data-wt/data/
