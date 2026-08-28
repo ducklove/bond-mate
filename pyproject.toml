@@ -1,0 +1,16 @@
+[project]
+name = "bond-mate"
+version = "1.0.0"
+description = "전 세계 금리·환율·국채·회사채 종합 대시보드"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["F", "E9", "I"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
