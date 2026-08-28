@@ -1,0 +1,131 @@
+name: Update data
+
+on:
+  schedule:
+    # 금리·환율 — 평일 30분마다 (UTC). 한국·미국 장 시간을 함께 덮는다.
+    - cron: '5,35 * * * *'
+    # 사채 발행 이력 — 하루 한 번 (UTC 02:10 = KST 11:10).
+    # EDGAR 는 발행사 13곳 × 공시 여러 건이라 몇 분 걸린다.
+    - cron: '10 2 * * *'
+  workflow_dispatch:
+    inputs:
+      include_issuers:
+        description: 'SEC EDGAR 사채 발행 이력도 수집'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+  issues: write
+
+# cron 과 수동 실행이 겹칠 때 data 브랜치 push 충돌을 막는다
+# (진행 중인 실행은 끝까지 보장 — 중간에 끊기면 히스토리가 부분만 남는다).
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # 히스토리는 직전 결과 위에 upsert 한다 — 매번 전부 다시 받지 않고,
+      # 소스가 과거값을 정정하면 그것만 갱신된다.
+      - name: Fetch previous data (data 브랜치)
+        run: |
+          mkdir -p data
+          if git fetch --depth=1 origin data 2>/dev/null; then
+            for name in current rates fx credit issuers; do
+              git show "FETCH_HEAD:data/$name.json" > "data/$name.json" \
+                || echo "data/$name.json 없음 — 새로 만듭니다"
+            done
+          else
+            echo "data 브랜치 없음 — 최초 수집입니다"
+          fi
+          cp -r data /tmp/data_prev
+
+      # 매시 실행은 금리·환율만. 하루 한 번(02:10 UTC)과 수동 요청 시에만 EDGAR 포함.
+      - name: Decide scope
+        id: scope
+        run: |
+          if [ "${{ github.event.schedule }}" = "10 2 * * *" ] \
+             || [ "${{ inputs.include_issuers }}" = "true" ]; then
+            echo "args=" >> "$GITHUB_OUTPUT"
+            echo "사채 발행 이력 포함"
+          else
+            echo "args=--skip-issuers" >> "$GITHUB_OUTPUT"
+            echo "금리·환율만 갱신"
+          fi
+
+      - name: Generate data
+        env:
+          # 한국은행 ECOS — 없으면 국고채 전 만기·한국 회사채만 빠지고 나머지는 정상.
+          ECOS_API_KEY: ${{ secrets.ECOS_API_KEY }}
+          # finance-pi 를 1순위 원본으로 쓰기 위한 설정. 토큰이 없거나 macro
+          # 적재가 밀려 있으면 소스가 스스로 비켜서고 공개 소스로 폴백한다.
+          FINANCE_PI_BASE_URL: ${{ vars.FINANCE_PI_BASE_URL }}
+          FINANCE_PI_API_TOKEN: ${{ secrets.FINANCE_PI_API_TOKEN }}
+          # SEC 는 연락처가 담긴 User-Agent 를 요구한다(없으면 403).
+          SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
+        run: python generate_data.py ${{ steps.scope.outputs.args }}
+
+      - name: Commit and push (data 브랜치)
+        id: commit
+        run: |
+          if diff -q /tmp/data_prev/current.json data/current.json >/dev/null 2>&1 \
+             && diff -q /tmp/data_prev/rates.json data/rates.json >/dev/null 2>&1; then
+            echo "변경 없음"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if git rev-parse --verify FETCH_HEAD >/dev/null 2>&1; then
+            git worktree add --detach /tmp/data-wt FETCH_HEAD
+          else
+            git worktree add --detach --orphan /tmp/data-wt
+          fi
+          mkdir -p /tmp/data-wt/data
+          cp data/*.json /tmp/data-wt/data/
+          cd /tmp/data-wt
+          git add data
+          git commit -m "데이터 갱신 $(date -u +'%Y-%m-%d %H:%M') UTC"
+          git push origin HEAD:refs/heads/data
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      # Pages 는 master push 로만 자동 배포되므로, 데이터만 바뀐 경우 직접 부른다.
+      - name: Trigger deploy
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run deploy.yml
+
+      # 실패가 조용히 쌓이지 않도록 이슈로 알린다(열린 이슈가 있으면 코멘트로 합침).
+      - name: Report failure as issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create data-update-failure --color D93F0B \
+            --description "데이터 갱신 워크플로 실패" --force || true
+          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          body="update-data 워크플로가 실패했습니다. 실행 로그: ${run_url}"
+          existing=$(gh issue list --label data-update-failure --state open \
+            --json number --jq '.[0].number' || true)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "데이터 갱신 실패: update-data" \
+              --label data-update-failure --body "$body"
+          fi

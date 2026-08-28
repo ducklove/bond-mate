@@ -1,0 +1,60 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # 생성 데이터(current.json·히스토리)는 master 가 아니라 data 전용 브랜치에
+      # 산다. 코드 히스토리가 매 30분 갱신되는 JSON 으로 오염되지 않도록.
+      # data 브랜치가 아직 없는 첫 배포에서도 사이트는 떠야 하므로 실패를 삼킨다.
+      - name: Fetch data files (data 브랜치)
+        run: |
+          mkdir -p data
+          if git fetch --depth=1 origin data 2>/dev/null; then
+            for name in current rates fx credit issuers; do
+              git show "FETCH_HEAD:data/$name.json" > "data/$name.json" \
+                || echo "data/$name.json 없음 — 건너뜀"
+            done
+          else
+            echo "data 브랜치가 아직 없습니다 — 빈 데이터로 배포합니다."
+            echo '{"generated_at":null,"rates":{},"fx":{},"credit":{},"curves":{},"offerings":[]}' > data/current.json
+          fi
+
+      - name: Assemble static site
+        run: |
+          mkdir -p _site
+          cp templates/index.html _site/index.html
+          cp manifest.webmanifest _site/manifest.webmanifest
+          cp -r static _site/static
+          cp -r data _site/data
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    # data 브랜치는 생성 데이터만 담는 전용 브랜치 — 코드 CI 대상이 아니다.
+    branches: ['**', '!data']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint (ruff)
+        run: python -m ruff check .
+
+      - name: Test (pytest)
+        run: python -m pytest -q
+
+      # 프론트엔드는 빌드가 없어 index.html 의 script 순서가 곧 의존성 계약이다.
+      # 파일 하나가 빠지거나 순서가 뒤집히면 런타임에야 드러나므로 여기서 막는다.
+      - name: Check frontend contract
+        run: python -m pytest tests/test_frontend_structure.py -q
