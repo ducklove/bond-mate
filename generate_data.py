@@ -27,6 +27,14 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="EDGAR 사채 발행 수집을 건너뛰고 직전 결과를 유지한다",
     )
+    parser.add_argument(
+        "--reset-series",
+        default="",
+        help=(
+            "쉼표로 구분한 시리즈 ID. 직전 히스토리를 버리고 새 소스로만 다시 쌓는다 "
+            "— 한 시리즈의 소스를 바꿨을 때 옛 소스의 관측치가 남아 최신값을 가리는 걸 푼다."
+        ),
+    )
     parser.add_argument("--quiet", action="store_true", help="경고 이상만 출력")
     args = parser.parse_args(argv)
 
@@ -35,7 +43,8 @@ def main(argv: list[str] | None = None) -> int:
         format="%(levelname)s %(name)s: %(message)s",
     )
 
-    snapshot = build.run(Path(args.out), skip_issuers=args.skip_issuers)
+    reset_series = {s.strip() for s in args.reset_series.split(",") if s.strip()}
+    snapshot = build.run(Path(args.out), skip_issuers=args.skip_issuers, reset_series=reset_series)
 
     rates, fx = len(snapshot["rates"]), len(snapshot["fx"])
     if not rates and not fx:

@@ -13,6 +13,10 @@ on:
         description: 'SEC EDGAR 사채 발행 이력도 수집'
         type: boolean
         default: false
+      reset_series:
+        description: '히스토리를 버리고 다시 쌓을 시리즈 (쉼표 구분, 소스 교체 후 1회)'
+        type: string
+        default: ''
 
 permissions:
   contents: write
@@ -78,7 +82,8 @@ jobs:
           FINANCE_PI_API_TOKEN: ${{ secrets.FINANCE_PI_API_TOKEN }}
           # SEC 는 연락처가 담긴 User-Agent 를 요구한다(없으면 403).
           SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
-        run: python generate_data.py ${{ steps.scope.outputs.args }}
+        run: |
+          python generate_data.py ${{ steps.scope.outputs.args }} \n            --reset-series "${{ inputs.reset_series }}"
 
       - name: Commit and push (data 브랜치)
         id: commit

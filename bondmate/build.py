@@ -360,12 +360,24 @@ def build_highlights(
 
 
 # --- 엔트리포인트 -------------------------------------------------------------
-def run(data_dir: Path = DATA_DIR, *, skip_issuers: bool = False) -> dict:
+def run(
+    data_dir: Path = DATA_DIR,
+    *,
+    skip_issuers: bool = False,
+    reset_series: set[str] | None = None,
+) -> dict:
     """수집·병합·기록을 한 번 수행하고 스냅샷을 돌려준다.
 
     히스토리는 ``data_dir`` 에 있던 직전 결과 위에 upsert 한다 — 소스가 과거를
     사후 정정하는 경우가 있어 append 가 아니라 병합이어야 한다.
+
+    ``reset_series`` 는 그 upsert 규칙의 탈출구다. **한 시리즈의 소스를 바꾸면**
+    옛 소스가 남긴 관측치가 그대로 살아남는데, 새 소스보다 날짜가 뒤면 그게
+    최신값 자리를 차지해 버린다(영국 정책금리를 SONIA 에서 BIS Bank Rate 로
+    옮겼을 때 실제로 겪었다: BIS 는 08-24 까지라 08-25·26 의 SONIA 값이 계속
+    노출됐다). 여기 넣은 시리즈는 직전 히스토리를 버리고 새 소스로만 다시 쌓는다.
     """
+    reset_series = reset_series or set()
     data_dir.mkdir(parents=True, exist_ok=True)
     today = date.today()
 
@@ -379,6 +391,10 @@ def run(data_dir: Path = DATA_DIR, *, skip_issuers: bool = False) -> dict:
     prev_rates = read_json(data_dir / RATES_FILE).get("series", {})
     prev_fx = read_json(data_dir / FX_FILE).get("series", {})
     prev_credit = read_json(data_dir / CREDIT_FILE)
+
+    for series in reset_series:
+        if prev_rates.pop(series, None) is not None or prev_fx.pop(series, None) is not None:
+            logger.info("%s 히스토리를 버리고 새 소스로 다시 쌓습니다", series)
 
     stored_rates = {
         series: history.store(prev_rates.get(series), points, today=today)

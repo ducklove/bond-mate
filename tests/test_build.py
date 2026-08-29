@@ -124,3 +124,43 @@ def test_한국_회사채는_미국_커브와_섞이지_않는다():
     )
     assert "AA-" not in snapshot["credit"]
     assert snapshot["credit_kr"]["AA-"]["value"] == 4.476
+
+
+def test_reset_series는_옛_소스의_히스토리를_버린다(tmp_path, monkeypatch):
+    """소스를 바꾸면 옛 관측치가 새 소스보다 뒤 날짜로 남아 최신값을 가린다.
+
+    영국 정책금리를 SONIA(FRED)에서 Bank Rate(BIS)로 옮겼을 때 실제로 겪은 일:
+    BIS 는 08-24 까지인데 08-25·26 의 SONIA 값이 계속 노출됐다.
+    """
+    build.write_json(
+        tmp_path / build.RATES_FILE,
+        {"series": {"GB_BASE": {"d": ["2026-08-25", "2026-08-26"], "v": [3.7316, 3.7309]}}},
+    )
+
+    # 수집은 건너뛰고 히스토리 처리만 본다.
+    monkeypatch.setattr(build.finance_pi, "probe", lambda: False)
+    monkeypatch.setattr(build, "collect_rates", lambda **kw: ({}, {}, []))
+    monkeypatch.setattr(build, "collect_fx", lambda **kw: ({}, []))
+    monkeypatch.setattr(build, "collect_credit", lambda kr: ({"yield": {}, "oas": {}}, []))
+
+    build.run(tmp_path, skip_issuers=True, reset_series={"GB_BASE"})
+
+    stored = build.read_json(tmp_path / build.RATES_FILE).get("series", {})
+    assert "GB_BASE" not in stored, "리셋 대상은 옛 히스토리가 남지 않아야 한다"
+
+
+def test_reset_series가_비면_히스토리를_유지한다(tmp_path, monkeypatch):
+    build.write_json(
+        tmp_path / build.RATES_FILE,
+        {"series": {"GB_BASE": {"d": ["2026-08-25"], "v": [3.7316]}}},
+    )
+    monkeypatch.setattr(build.finance_pi, "probe", lambda: False)
+    monkeypatch.setattr(build, "collect_rates", lambda **kw: ({"GB_BASE": {"2026-08-24": 3.75}}, {}, []))
+    monkeypatch.setattr(build, "collect_fx", lambda **kw: ({}, []))
+    monkeypatch.setattr(build, "collect_credit", lambda kr: ({"yield": {}, "oas": {}}, []))
+
+    build.run(tmp_path, skip_issuers=True)
+
+    stored = build.read_json(tmp_path / build.RATES_FILE)["series"]["GB_BASE"]
+    # 옛 관측치가 그대로 남아 새 소스(08-24)보다 뒤 날짜를 차지한다 — 이게 리셋이 필요한 이유.
+    assert stored["d"] == ["2026-08-24", "2026-08-25"]
