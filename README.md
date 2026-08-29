@@ -96,7 +96,7 @@ mkdir -p _site && cp templates/index.html _site/ && cp manifest.webmanifest _sit
 ## 테스트
 
 ```bash
-python -m pytest -q        # 62개 — 파서·조립·프론트 구조 계약
+python -m pytest -q        # 75개 — 파서·조립·프론트 구조 계약
 python -m ruff check .
 ```
 
@@ -168,7 +168,7 @@ bondmate/
   build.py        수집 → 병합 → published JSON 조립
   history.py      히스토리 저장 포맷·해상도 축소
   http.py         공유 세션·재시도·User-Agent
-  sources/        finance_pi · fred · ecos · mof · cnbc · naver · edgar
+  sources/        finance_pi · ecos · bis · mof · fred · cnbc · naver · edgar
 templates/        index.html (배포 시 _site 로 조립)
 static/           CSS 1개 + JS 9개 (빌드 없음, script 순서가 의존성 계약)
 generate_data.py  Actions 진입점
