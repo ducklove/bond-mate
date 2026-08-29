@@ -3,7 +3,7 @@
 import pytest
 
 from bondmate.http import SourceError
-from bondmate.sources import cnbc, ecos, finance_pi, fred, mof, naver
+from bondmate.sources import bis, cnbc, ecos, finance_pi, fred, mof, naver
 
 # --- FRED --------------------------------------------------------------------
 
@@ -166,3 +166,36 @@ def test_finance_pi_환경변수_설정값이_기본값을_이긴다(monkeypatch
 
     assert finance_pi.base_url() == "http://192.168.68.84:8400"
     assert finance_pi._max_stale_days() == 3
+
+
+# --- BIS -----------------------------------------------------------------------
+
+
+def test_BIS_CSV에서_관심국가만_추린다():
+    csv = (
+        "FREQ,REF_AREA,TIME_PERIOD,OBS_VALUE\n"
+        "D,KR,2026-08-03,2.75\n"
+        "D,JP,2026-08-25,1.00\n"
+        "D,XM,2026-08-25,2.25\n"      # 유로존은 FRED(ECBDFR)가 맡는다
+        "D,US,2026-08-25,3.62\n"      # 미국도 FRED(DFEDTARU)가 맡는다
+        "D,GB,2026-08-24,\n"          # 결측
+    )
+    parsed = bis.parse_csv(csv)
+
+    assert parsed == {"KR_BASE": {"2026-08-03": 2.75}, "JP_BASE": {"2026-08-25": 1.00}}
+
+
+def test_BIS는_미국과_유로존을_다루지_않는다():
+    """관행적 '기준금리' 정의가 달라(미국은 FF 목표 상단) FRED 가 맡는다."""
+    assert "US" not in bis.REF_AREAS
+    assert "XM" not in bis.REF_AREAS
+    # 대신 FRED 가 정책금리로 다루지 않는 나라들을 메운다.
+    assert {"JP", "GB", "AU", "CN", "CA", "CH", "IN", "ID", "BR", "MX"} <= set(bis.REF_AREAS)
+
+
+def test_FRED와_BIS의_정책금리_담당이_겹치지_않는다():
+    """같은 국가를 두 소스가 다루면 어느 값이 나올지 순서에 좌우된다."""
+    fred_countries = {code.removesuffix("_BASE") for code in fred.POLICY_SERIES}
+    bis_countries = {code.removesuffix("_BASE") for code in bis.REF_AREAS.values()}
+
+    assert fred_countries.isdisjoint(bis_countries)

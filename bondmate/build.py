@@ -10,13 +10,15 @@
 소스 우선순위
     같은 시리즈를 여러 소스가 주면 **먼저 얹힌 값이 이긴다**. 순서는
 
-    1. finance-pi — 이미 정규화된 원본. 살아 있으면 이게 기준이다.
-    2. 각국 공식 소스 — 일본 MOF(전 만기 커브).
-    3. FRED — 넓고 길지만 각국 10년물은 월간·지연.
-    4. CNBC — 오늘자 시세만. 위 소스들이 아직 반영 못 한 최신 하루를 메운다.
+    1. finance-pi — 이미 정규화된 원본. 살아 있고 최신이면 이게 기준이다.
+    2. 한국은행 ECOS — 국고채 전 만기·회사채. 한국물의 원본.
+    3. BIS CBPOL — 주요국 중앙은행 정책금리(미국·유로존 제외).
+    4. 일본 MOF — 일본 국채 전 만기 커브.
+    5. FRED — 미국 커브·등급별 회사채·환율. 넓고 길지만 각국 10년물은 월간·지연.
+    6. CNBC — 오늘자 시세만. 위 소스들이 아직 반영 못 한 최신 하루를 메운다.
 
-    CNBC 만 예외적으로 덮어쓴다. 나머지가 며칠 지연될 때 스냅샷이 낡아 보이는
-    걸 막기 위해서다.
+    CNBC 와 (환율의) 네이버만 예외적으로 덮어쓴다. 나머지가 며칠 지연될 때
+    스냅샷이 낡아 보이는 걸 막기 위해서다.
 """
 
 from __future__ import annotations
@@ -28,7 +30,7 @@ from pathlib import Path
 
 from bondmate import catalog, history
 from bondmate.http import SourceError
-from bondmate.sources import cnbc, ecos, edgar, finance_pi, fred, mof, naver
+from bondmate.sources import bis, cnbc, ecos, edgar, finance_pi, fred, mof, naver
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +104,9 @@ def collect_rates(
         except SourceError as exc:
             logger.warning("ECOS 실패 — %s", exc)
 
-    for name, collect in (("mof", mof.collect), ("fred", fred.collect_rates)):
+    # BIS CBPOL — 주요국 중앙은행 정책금리. FRED 는 미국·유로존만 커버해서
+    # 이게 없으면 기준금리 화면이 미국과 유럽만 남는다.
+    for name, collect in (("bis", bis.collect), ("mof", mof.collect), ("fred", fred.collect_rates)):
         try:
             _underlay(merged, collect())
             used.append(name)

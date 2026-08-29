@@ -53,13 +53,15 @@ GOVT_10Y_SERIES = {
 
 # --- 정책금리 ----------------------------------------------------------------
 # 유로존 4개국(DE/FR/IT/ES)은 ECB 예금금리를 공유한다.
+# 나머지 국가는 BIS CBPOL(:mod:`bondmate.sources.bis`)이 맡는다 — FRED 에는
+# 정책금리 자체가 없고 시장금리 대용뿐이라(영국 IUDSOIA 는 Bank Rate 가 아니라
+# SONIA) 여기서 받으면 다른 값이 나온다.
 POLICY_SERIES = {
     "US_BASE": "DFEDTARU",
     "DE_BASE": "ECBDFR",
     "FR_BASE": "ECBDFR",
     "IT_BASE": "ECBDFR",
     "ES_BASE": "ECBDFR",
-    "GB_BASE": "IUDSOIA",
 }
 
 # --- 신용등급별 회사채 (ICE BofA 미국 지수, 일간) ----------------------------
