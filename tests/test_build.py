@@ -1,5 +1,7 @@
 """스냅샷 조립 규칙 — 소스 우선순위, 커브 구성, 하이라이트."""
 
+import pytest
+
 from bondmate import build, catalog
 
 
@@ -164,3 +166,15 @@ def test_reset_series가_비면_히스토리를_유지한다(tmp_path, monkeypat
     stored = build.read_json(tmp_path / build.RATES_FILE)["series"]["GB_BASE"]
     # 옛 관측치가 그대로 남아 새 소스(08-24)보다 뒤 날짜를 차지한다 — 이게 리셋이 필요한 이유.
     assert stored["d"] == ["2026-08-24", "2026-08-25"]
+
+
+def test_write_json은_비표준_JSON을_거부한다(tmp_path):
+    """NaN/Infinity 가 조용히 배포되면 브라우저가 파일 전체를 못 읽는다."""
+    with pytest.raises(ValueError):
+        build.write_json(tmp_path / "bad.json", {"v": float("nan")})
+
+
+def test_round는_비유한값을_None으로_만든다():
+    assert build._round(float("nan")) is None
+    assert build._round(float("inf")) is None
+    assert build._round(4.7345, 2) == 4.73

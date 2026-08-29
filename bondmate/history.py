@@ -63,16 +63,32 @@ def downsample(points: dict[str, float], *, today: date | None = None) -> dict[s
     return {day: points[day] for day in sorted(chosen)}
 
 
+def _finite(value) -> bool:
+    """JSON 으로 나갈 수 있는 실수인지.
+
+    ``float("NaN")`` 은 파이썬에서 성공하고 ``json.dumps`` 는 그대로 ``NaN`` 을
+    쓴다 — 표준 JSON 이 아니라 브라우저가 파일 전체를 거부한다. BIS CBPOL CSV 가
+    실제로 결측을 ``NaN`` 문자열로 주므로 여기서 걸러 낸다.
+    """
+    if value is None or isinstance(value, bool):
+        return False
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return number == number and number not in (float("inf"), float("-inf"))
+
+
 def merge(existing: dict | None, incoming: dict[str, float]) -> dict[str, float]:
     """기존 히스토리에 새 관측치를 덮어쓴다(같은 날짜는 새 값 우선).
 
     소스가 과거값을 사후 정정(FRED 의 revision)하는 일이 있어 append 가 아니라
-    upsert 여야 한다.
+    upsert 여야 한다. 값이 실수가 아니면 버린다(:func:`_finite`).
     """
     merged: dict[str, float] = {}
     if existing:
-        merged.update(decode(existing))
-    merged.update({d: v for d, v in incoming.items() if v is not None})
+        merged.update({d: v for d, v in decode(existing).items() if _finite(v)})
+    merged.update({d: v for d, v in incoming.items() if _finite(v)})
     return merged
 
 

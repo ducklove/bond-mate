@@ -71,3 +71,29 @@ def test_최신_두_점으로_전일대비를_만든다():
 
 def test_관측치가_없으면_None():
     assert history.latest_two({}) == (None, None)
+
+
+def test_NaN_관측치는_병합에서_버려진다():
+    """BIS CBPOL CSV 는 결측을 'NaN' 문자열로 준다.
+
+    float('NaN') 은 파이썬에서 성공하고 json.dumps 가 그대로 NaN 을 써서
+    표준 JSON 이 깨진다 — 실제로 브라우저가 rates.json 전체를 거부해
+    히스토리 차트가 전부 죽었다.
+    """
+    merged = history.merge(None, {"2026-08-25": float("nan"), "2026-08-26": 13.8})
+    assert merged == {"2026-08-26": 13.8}
+
+
+def test_무한대도_버려진다():
+    merged = history.merge(None, {"2026-08-25": float("inf"), "2026-08-26": float("-inf"), "2026-08-27": 1.0})
+    assert merged == {"2026-08-27": 1.0}
+
+
+def test_기존_히스토리에_섞인_NaN도_걸러낸다():
+    """이미 오염된 파일을 읽어 다시 쓸 때도 정화돼야 한다."""
+    dirty = {"d": ["2026-08-25", "2026-08-26"], "v": [float("nan"), 13.8]}
+    assert history.merge(dirty, {}) == {"2026-08-26": 13.8}
+
+
+def test_불리언은_금리값이_아니다():
+    assert history.merge(None, {"2026-08-26": True}) == {}

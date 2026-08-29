@@ -70,13 +70,17 @@ def read_json(path: Path) -> dict:
 def write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # 공백을 줄여 Pages 전송량을 아낀다. ensure_ascii=False 로 한글 라벨이 그대로.
+    # allow_nan=False 는 방어선이다 — NaN/Infinity 는 표준 JSON 이 아니라
+    # 브라우저가 파일 전체를 거부하는데, 기본값으로 두면 조용히 나가 버린다.
     path.write_text(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8"
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
+        encoding="utf-8",
     )
 
 
 def _round(value: float | None, digits: int = 4) -> float | None:
-    return None if value is None else round(value, digits)
+    """반올림. 비유한값은 None 으로 — allow_nan=False 에 걸리지 않도록."""
+    return round(value, digits) if history._finite(value) else None
 
 
 # --- 수집 --------------------------------------------------------------------
