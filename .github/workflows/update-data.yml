@@ -82,8 +82,7 @@ jobs:
           FINANCE_PI_API_TOKEN: ${{ secrets.FINANCE_PI_API_TOKEN }}
           # SEC 는 연락처가 담긴 User-Agent 를 요구한다(없으면 403).
           SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
-        run: |
-          python generate_data.py ${{ steps.scope.outputs.args }} \n            --reset-series "${{ inputs.reset_series }}"
+        run: python generate_data.py ${{ steps.scope.outputs.args }} --reset-series "${{ inputs.reset_series }}"
 
       - name: Commit and push (data 브랜치)
         id: commit
