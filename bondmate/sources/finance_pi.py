@@ -15,7 +15,7 @@ finance-pi(``../finance-pi``, 라즈베리파이 :8400)는 이미 FRED·ECOS 를
     자동으로 우선한다: ``FINANCE_PI_API_TOKEN`` 제공 + macro 적재 재개.
 
 환경변수
-    ``FINANCE_PI_BASE_URL``   기본 ``http://cantabile.tplinkdns.com:8400``
+    ``FINANCE_PI_BASE_URL``   기본 ``http://ducklove.duckdns.org:8400``
     ``FINANCE_PI_ENABLED``    ``0`` 이면 시도조차 하지 않음
     ``FINANCE_PI_TIMEOUT``    초 단위, 기본 20
     ``FINANCE_PI_API_TOKEN``  공개 접근용 관리자 토큰 (``X-Admin-Token`` 헤더)
@@ -32,7 +32,7 @@ from bondmate.http import SourceError, fetch
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_BASE_URL = "http://cantabile.tplinkdns.com:8400"
+DEFAULT_BASE_URL = "http://ducklove.duckdns.org:8400"
 
 # finance-pi series_id → bond-mate 시리즈 ID.
 # ECOS 계열(``*_ECOS``)은 한국은행 원본이라 한국물의 우선 소스가 된다.

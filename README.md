@@ -84,7 +84,7 @@ mkdir -p _site && cp templates/index.html _site/ && cp manifest.webmanifest _sit
 | 변수 | 없으면 |
 |---|---|
 | `ECOS_API_KEY` | 국고채 전 만기·한국 회사채만 빠지고 나머지는 정상 |
-| `FINANCE_PI_BASE_URL` | `http://cantabile.tplinkdns.com:8400` |
+| `FINANCE_PI_BASE_URL` | `http://ducklove.duckdns.org:8400` |
 | `FINANCE_PI_API_TOKEN` | finance-pi 는 건너뛰고 공개 소스 사용 |
 | `FINANCE_PI_ENABLED=0` | finance-pi 를 아예 시도하지 않음 |
 | `FINANCE_PI_MAX_STALE_DAYS` | 기본 10일. 최신 관측이 이보다 오래되면 미사용 |
