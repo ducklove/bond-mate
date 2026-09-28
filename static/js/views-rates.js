@@ -28,13 +28,13 @@ const BMRates = (function () {
       {
         k: '미국 10년물',
         v: fmtPct(us10?.value, 2),
-        n: us10 ? fmtChange(us10.change, 3) + '%p · ' + fmtDate(us10.date) : '—',
+        n: us10 ? fmtChangeBp(us10.change) + ' · ' + fmtDate(us10.date) : '—',
         cls: changeClass(us10?.change),
       },
       {
         k: '한국 10년물',
         v: fmtPct(kr10?.value, 2),
-        n: kr10 ? fmtChange(kr10.change, 3) + '%p · ' + fmtDate(kr10.date) : '—',
+        n: kr10 ? fmtChangeBp(kr10.change) + ' · ' + fmtDate(kr10.date) : '—',
         cls: changeClass(kr10?.change),
       },
       {
@@ -246,7 +246,7 @@ const BMRates = (function () {
         if (!point || point.value == null) return '<td class="num flat">—</td>';
         return '<td class="num">' + point.value.toFixed(2) +
           ' <span class="' + changeClass(point.change) + '" style="font-size:11px">' +
-          escapeHtml(fmtChange(point.change, 3)) + '</span></td>';
+          escapeHtml(fmtChangeBp(point.change)) + '</span></td>';
       }).join('');
       return '<tr><td class="text">' + escapeHtml(slot.tenor || maturityLabel(slot.maturity)) + '</td>' + cells + '</tr>';
     }).join('');

@@ -38,11 +38,18 @@ function fmtMoney(value) {
   return '$' + Math.round(value).toLocaleString('en-US');
 }
 
-/** 전일대비 — 금리는 %p, 환율은 원 단위로 부호와 함께. */
+/** 전일대비 — 입력 단위 그대로 부호와 함께. */
 function fmtChange(change, digits) {
   if (change == null || !isFinite(change) || change === 0) return '보합';
   const sign = change > 0 ? '+' : '−';
   return sign + Math.abs(change).toFixed(digits == null ? 3 : digits);
+}
+
+/** 금리·수익률·스프레드 전일대비: %p를 소수 첫째 자리 bp로 환산. */
+function fmtChangeBp(change) {
+  if (change == null || !isFinite(change)) return '—';
+  if (change === 0) return '0.0bp';
+  return fmtChange(change * 100, 1) + 'bp';
 }
 
 /** 상승/하락 색상 클래스. 금리는 상승이 붉은색(국내 관행). */

@@ -40,7 +40,8 @@ const BMViews = (function () {
       '<span class="tile-value">' + escapeHtml(opts.valueText) +
       (unit ? '<span class="tile-unit">' + escapeHtml(unit) + '</span>' : '') + '</span>' +
       '<span class="tile-change ' + changeClass(change) + '">' +
-      escapeHtml(fmtChange(change, opts.changeDigits == null ? 3 : opts.changeDigits)) + '</span>' +
+      escapeHtml(unit === '%' ? fmtChangeBp(change)
+        : fmtChange(change, opts.changeDigits == null ? 3 : opts.changeDigits)) + '</span>' +
       (opts.date ? '<span class="tile-date">' + escapeHtml(fmtDate(opts.date)) + '</span>' : '') +
       '</button>'
     );
@@ -145,9 +146,9 @@ const BMViews = (function () {
     return { select, redraw: draw };
   }
 
-  /** 상승/하락을 색으로 표시한 전일대비 셀. */
-  function changeCellHtml(change, digits) {
-    return '<td class="num ' + changeClass(change) + '">' + escapeHtml(fmtChange(change, digits)) + '</td>';
+  /** 상승/하락을 색으로 표시한 금리·스프레드 전일대비 셀(bp). */
+  function changeCellHtml(change) {
+    return '<td class="num ' + changeClass(change) + '">' + escapeHtml(fmtChangeBp(change)) + '</td>';
   }
 
   function embedNoteHtml(view) {

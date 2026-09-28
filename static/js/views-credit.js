@@ -55,9 +55,9 @@ const BMCredit = (function () {
         '<td class="text"><span class="pill ' + (meta.investment_grade ? 'ig' : 'hy') + '">' +
         escapeHtml(meta.label) + '</span></td>' +
         '<td class="num">' + escapeHtml(fmtPct(y, 2)) + '</td>' +
-        BMViews.changeCellHtml(meta.yield?.change, 3) +
+        BMViews.changeCellHtml(meta.yield?.change) +
         '<td class="num">' + escapeHtml(fmtBp(toBp(oas))) + '</td>' +
-        BMViews.changeCellHtml(meta.oas?.change, 3) +
+        BMViews.changeCellHtml(meta.oas?.change) +
         '<td class="text" style="color:var(--text-faint)">' +
         escapeHtml(meta.investment_grade ? '투자등급' : '하이일드') + '</td>' +
         '</tr>';
