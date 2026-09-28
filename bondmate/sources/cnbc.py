@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import json
 import logging
+import math
+from datetime import datetime
 
 from bondmate.http import SourceError, fetch
 
@@ -34,11 +36,19 @@ SYMBOLS = {
 # CNBC 는 한 요청에 심볼을 파이프로 이어 받는다. 너무 길면 잘리므로 나눠 보낸다.
 BATCH_SIZE = 20
 
+# 통화쌍 방향은 CNBC의 상품명과 일치한다. USD_IDX는 FRED의 광의 달러지수라
+# ICE DXY로 대체하지 않는다(서로 다른 지수).
+FX_SYMBOLS = {
+    "USD_JPY": "JPY=", "EUR_USD": "EUR=", "GBP_USD": "GBP=", "USD_CNY": "CNY=",
+    "USD_INR": "INR=", "USD_BRL": "BRL=", "USD_MXN": "MXN=",
+}
+
 
 def _parse_last(quote: dict) -> float | None:
-    raw = str(quote.get("last") or "").strip().rstrip("%").strip().replace(",", "")
+    raw = str(quote.get("last", "")).strip().rstrip("%").strip().replace(",", "")
     try:
-        return float(raw)
+        value = float(raw)
+        return value if math.isfinite(value) else None
     except ValueError:
         return None
 
@@ -52,6 +62,14 @@ def _quote_date(quote: dict) -> str | None:
 def fetch_quotes(codes: list[str] | None = None) -> dict[str, dict]:
     """``{시리즈ID: {"value": float, "date": "YYYY-MM-DD"|None}}``."""
     wanted = {c: SYMBOLS[c] for c in (codes or SYMBOLS) if c in SYMBOLS}
+    return _fetch_quotes(wanted)
+
+
+def fetch_fx_quotes() -> dict[str, dict]:
+    return _fetch_quotes(FX_SYMBOLS)
+
+
+def _fetch_quotes(wanted: dict[str, str]) -> dict[str, dict]:
     if not wanted:
         return {}
 
@@ -86,6 +104,20 @@ def fetch_quotes(codes: list[str] | None = None) -> dict[str, dict]:
             value = _parse_last(quote) if code else None
             if code and value is not None:
                 out[code] = {"value": value, "date": _quote_date(quote)}
+                if code in FX_SYMBOLS:
+                    try:
+                        stamp = datetime.fromisoformat(str(quote.get("last_time") or ""))
+                        if not stamp.tzinfo or value <= 0:
+                            raise ValueError("시각/환율 오류")
+                    except ValueError:
+                        del out[code]
+                        continue
+                    out[code].update(as_of=stamp.isoformat(timespec="seconds"), source="cnbc",
+                                     quote_type="시장 환율")
+                    for field in ("change", "change_pct"):
+                        parsed = _parse_last({"last": quote.get(field)})
+                        if parsed is not None:
+                            out[code][field] = parsed
 
     if not out:
         raise SourceError("CNBC: 파싱된 시세 없음")

@@ -22,6 +22,7 @@ from bondmate import build
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="bond-mate published JSON 생성")
     parser.add_argument("--out", default="data", help="출력 디렉터리 (기본 data)")
+    parser.add_argument("--fx-only", action="store_true", help="최신 환율만 갱신하고 다른 데이터는 유지")
     parser.add_argument(
         "--skip-issuers",
         action="store_true",
@@ -44,7 +45,10 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     reset_series = {s.strip() for s in args.reset_series.split(",") if s.strip()}
-    snapshot = build.run(Path(args.out), skip_issuers=args.skip_issuers, reset_series=reset_series)
+    if args.fx_only:
+        snapshot = build.refresh_fx(Path(args.out))
+    else:
+        snapshot = build.run(Path(args.out), skip_issuers=args.skip_issuers, reset_series=reset_series)
 
     rates, fx = len(snapshot["rates"]), len(snapshot["fx"])
     if not rates and not fx:

@@ -37,3 +37,10 @@ jobs:
       # 파일 하나가 빠지거나 순서가 뒤집히면 런타임에야 드러나므로 여기서 막는다.
       - name: Check frontend contract
         run: python -m pytest tests/test_frontend_structure.py -q
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Check automatic refresh
+        run: node --test tests/frontend-refresh.test.cjs

@@ -99,7 +99,7 @@ const BMCredit = (function () {
       BMViews.embedNoteHtml('credit');
 
     drawOas(root.querySelector('#crOas'), snapshot);
-    window.addEventListener('resize', debounce(() => drawOas(root.querySelector('#crOas'), snapshot), 200));
+    BMViews.onResize(() => drawOas(root.querySelector('#crOas'), snapshot));
 
     const panel = BMViews.bindHistoryPanel(
       root, 'crHistory',

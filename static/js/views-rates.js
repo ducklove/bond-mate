@@ -40,7 +40,7 @@ const BMRates = (function () {
       {
         k: '달러/원',
         v: fmtNum(usd?.value, 2),
-        n: usd ? fmtChange(usd.change, 2) + '원 · ' + fmtDate(usd.date) : '—',
+        n: usd ? fmtChange(usd.change, 2) + '원 · ' + fmtQuoteDate(usd) : '—',
         cls: changeClass(usd?.change),
       },
       {
@@ -91,11 +91,11 @@ const BMRates = (function () {
     drawTenYear(root.querySelector('#ovTen'), snapshot);
     drawCreditBars(root.querySelector('#ovCredit'), snapshot);
 
-    window.addEventListener('resize', debounce(() => {
+    BMViews.onResize(() => {
       drawCurves(root.querySelector('#ovCurve'), root.querySelector('#ovCurveLegend'), snapshot, curveCountries);
       drawTenYear(root.querySelector('#ovTen'), snapshot);
       drawCreditBars(root.querySelector('#ovCredit'), snapshot);
-    }, 200));
+    });
   }
 
   function drawCurves(box, legendBox, snapshot, countries) {
@@ -227,7 +227,7 @@ const BMRates = (function () {
       });
     }
 
-    window.addEventListener('resize', debounce(refresh, 200));
+    BMViews.onResize(refresh);
   }
 
   function curveTableHtml(snapshot, countries) {

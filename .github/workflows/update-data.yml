@@ -4,11 +4,17 @@ on:
   schedule:
     # 금리·환율 — 평일 30분마다 (UTC). 한국·미국 장 시간을 함께 덮는다.
     - cron: '5,35 * * * *'
+    # 환율만 별도로 5분마다. 금리 수집 주기는 유지한다.
+    - cron: '2-57/5 * * * *'
     # 사채 발행 이력 — 하루 한 번 (UTC 02:10 = KST 11:10).
     # EDGAR 는 발행사 13곳 × 공시 여러 건이라 몇 분 걸린다.
     - cron: '10 2 * * *'
   workflow_dispatch:
     inputs:
+      fx_only:
+        description: '환율만 최신 고시·시장 시세로 갱신'
+        type: boolean
+        default: false
       include_issuers:
         description: 'SEC EDGAR 사채 발행 이력도 수집'
         type: boolean
@@ -67,6 +73,10 @@ jobs:
              || [ "${{ inputs.include_issuers }}" = "true" ]; then
             echo "args=" >> "$GITHUB_OUTPUT"
             echo "사채 발행 이력 포함"
+          elif [ "${{ github.event.schedule }}" = "2-57/5 * * * *" ] \
+            || [ "${{ inputs.fx_only }}" = "true" ]; then
+            echo "args=--fx-only" >> "$GITHUB_OUTPUT"
+            echo "환율만 갱신"
           else
             echo "args=--skip-issuers" >> "$GITHUB_OUTPUT"
             echo "금리·환율만 갱신"

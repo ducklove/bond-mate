@@ -156,9 +156,17 @@ python generate_data.py --reset-series GB_BASE
 
 | 무엇 | 언제 |
 |---|---|
-| 금리·환율·등급별 회사채 | 30분마다 (`update-data.yml`) |
+| 금리·등급별 회사채·환율 히스토리 | 30분마다 (`update-data.yml`) |
+| 최신 환율 (네이버 고시 8종·CNBC 시장 환율 7종) | 5분마다 (`--fx-only`), 금리 수집 없음 |
+| 열린 화면 | 1분마다 새 데이터 확인, 탭 복귀·온라인 복구 시 즉시 확인 |
 | 회사채 발행 이력 | 하루 한 번, UTC 02:10 (KST 11:10) |
 | 사이트 배포 | `master` push, 또는 데이터가 바뀌면 자동 트리거 |
+
+GitHub Actions 예약 실행은 혼잡 시 지연될 수 있으므로 위 간격은 목표 주기다.
+`generated_at`/`updated_at`은 수집 시각, 환율별 `as_of`는 원본 시세 시각이다.
+최신 환율은 `api.stock.naver.com`의 JSON 고시와 CNBC 시세를 사용한다.
+네이버의 종료된 `exchangeDailyQuote.naver`(HTTP 410)는 사용하지 않는다.
+달러지수(`USD_IDX`)는 FRED의 광의 무역가중 지수를 유지하며, ICE DXY로 대체하지 않는다.
 
 ## 구조
 

@@ -32,6 +32,8 @@ const BMFx = (function () {
         change: quote.change,
         changeDigits: digits,
         date: quote.date,
+        as_of: quote.as_of,
+        quote_type: quote.quote_type,
         digits,
       });
     }).join('');
@@ -44,11 +46,11 @@ const BMFx = (function () {
     root.innerHTML =
       BMViews.sectionHtml(
         '원화 환율',
-        '타일을 누르면 아래에 히스토리가 나옵니다',
+        '하나은행 최신 고시 · 5분 간격 수집 · 화면 자동 갱신',
         '<div class="grid grid-auto">' + tilesHtml(snapshot, krw) + '</div>'
       ) +
       (cross.length
-        ? BMViews.sectionHtml('주요 통화쌍', '달러 기준', '<div class="grid grid-auto">' + tilesHtml(snapshot, cross) + '</div>')
+        ? BMViews.sectionHtml('주요 통화쌍', '시장 환율 · 달러지수는 FRED 공표 기준', '<div class="grid grid-auto">' + tilesHtml(snapshot, cross) + '</div>')
         : '') +
       BMViews.sectionHtml('히스토리', '', BMViews.historyPanelHtml('fxHistory', '통화쌍을 선택하세요', '')) +
       BMViews.embedNoteHtml('fx');

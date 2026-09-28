@@ -132,29 +132,43 @@ def collect_rates(
     return merged, kr_credit, used
 
 
-def collect_fx(*, use_finance_pi: bool = False) -> tuple[dict[str, dict[str, float]], list[str]]:
+def collect_fx(*, use_finance_pi: bool = False, recent_only: bool = False,
+               quote_metadata: dict | None = None) -> tuple[dict[str, dict[str, float]], list[str]]:
     merged: dict[str, dict[str, float]] = {}
     used: list[str] = []
 
-    if use_finance_pi:
+    if use_finance_pi and not recent_only:
         try:
             _underlay(merged, finance_pi.collect_fx())
             used.append("finance-pi")
         except SourceError as exc:
             logger.warning("finance-pi fx 실패 — %s", exc)
 
-    try:
-        _underlay(merged, fred.collect_fx())
-        used.append("fred")
-    except SourceError as exc:
-        logger.warning("fred fx 실패 — %s", exc)
+    if not recent_only:
+        try:
+            _underlay(merged, fred.collect_fx())
+            used.append("fred")
+        except SourceError as exc:
+            logger.warning("fred fx 실패 — %s", exc)
 
     # FRED 의 DEX* 는 주 1회 공표라 최대 일주일 밀린다 — 최근 구간만 덮어쓴다.
     try:
-        _overlay(merged, naver.collect())
+        _overlay(merged, naver.collect(quote_metadata=quote_metadata))
         used.append("naver")
     except SourceError as exc:
         logger.warning("네이버 환율 실패 — %s", exc)
+
+    try:
+        quotes = cnbc.fetch_fx_quotes()
+        _overlay(merged, {pair: {q["date"]: q["value"]} for pair, q in quotes.items()})
+        if quote_metadata is not None:
+            quote_metadata.update(quotes)
+        used.append("cnbc")
+    except SourceError as exc:
+        logger.warning("CNBC 환율 실패 — %s", exc)
+
+    if recent_only and not merged:
+        raise SourceError("최신 환율 소스가 모두 실패했습니다. 직전 데이터를 보존합니다.")
 
     return merged, used
 
@@ -364,6 +378,47 @@ def build_highlights(
 
 
 # --- 엔트리포인트 -------------------------------------------------------------
+def apply_fx_metadata(quotes: dict, metadata: dict, previous: dict) -> None:
+    """원본 시세 시각과 전일대비를 붙인다. 오래된 메타데이터로 새 값을 꾸미지 않는다."""
+    for pair, quote in quotes.items():
+        meta = metadata.get(pair) or previous.get(pair, {})
+        digits = catalog.FX_PAIRS.get(pair, {}).get("decimals", 4)
+        if meta.get("date") != quote["date"] or _round(meta.get("value"), digits) != quote["value"]:
+            continue
+        for key in ("as_of", "source", "quote_type", "change", "change_pct"):
+            if meta.get(key) is not None:
+                quote[key] = meta[key]
+        if meta.get("source") and "change" in meta:
+            # 일별 히스토리의 직전 날짜가 원본 전일 종가의 날짜라는 보장은 없다.
+            quote.pop("prev_date", None)
+
+
+def refresh_fx(data_dir: Path = DATA_DIR) -> dict:
+    """5분 간격 환율 수집. 금리·신용·발행 데이터와 파일은 그대로 유지한다."""
+    snapshot = read_json(data_dir / SNAPSHOT_FILE)
+    if not snapshot.get("generated_at"):
+        raise SourceError("환율 단독 갱신 전에 전체 데이터를 한 번 수집해야 합니다.")
+    metadata: dict[str, dict] = {}
+    incoming, sources = collect_fx(recent_only=True, quote_metadata=metadata)
+    previous = read_json(data_dir / FX_FILE).get("series", {})
+    stored = {
+        pair: history.store(previous.get(pair), incoming.get(pair, {}), today=date.today())
+        for pair in previous.keys() | incoming.keys()
+    }
+    fresh = build_snapshot({}, {p: history.decode(v) for p, v in stored.items()}, {}, [], sources={})
+    apply_fx_metadata(fresh["fx"], metadata, snapshot.get("fx", {}))
+    snapshot.setdefault("updated_at", {"rates": snapshot["generated_at"],
+                                       "credit": snapshot["generated_at"]})
+    snapshot["updated_at"]["fx"] = fresh["generated_at"]
+    snapshot["generated_at"] = fresh["generated_at"]
+    snapshot["fx"] = fresh["fx"]
+    previous_sources = snapshot.setdefault("sources", {}).get("fx", [])
+    snapshot["sources"]["fx"] = list(dict.fromkeys([*previous_sources, *sources]))
+    write_json(data_dir / FX_FILE, {"generated_at": fresh["generated_at"], "series": stored})
+    write_json(data_dir / SNAPSHOT_FILE, snapshot)
+    return snapshot
+
+
 def run(
     data_dir: Path = DATA_DIR,
     *,
@@ -389,7 +444,8 @@ def run(
     use_finance_pi = finance_pi.probe()
 
     rates, kr_credit, rate_sources = collect_rates(use_finance_pi=use_finance_pi)
-    fx, fx_sources = collect_fx(use_finance_pi=use_finance_pi)
+    fx_metadata: dict[str, dict] = {}
+    fx, fx_sources = collect_fx(use_finance_pi=use_finance_pi, quote_metadata=fx_metadata)
     credit, credit_sources = collect_credit(kr_credit)
 
     prev_rates = read_json(data_dir / RATES_FILE).get("series", {})
@@ -405,8 +461,8 @@ def run(
         for series, points in rates.items()
     }
     stored_fx = {
-        series: history.store(prev_fx.get(series), points, today=today)
-        for series, points in fx.items()
+        series: history.store(prev_fx.get(series), fx.get(series, {}), today=today)
+        for series in prev_fx.keys() | fx.keys()
     }
     stored_credit = {
         kind: {
@@ -451,6 +507,9 @@ def run(
     )
 
     stamp = snapshot["generated_at"]
+    snapshot["updated_at"] = {"rates": stamp, "fx": stamp, "credit": stamp}
+    apply_fx_metadata(snapshot["fx"], fx_metadata,
+                      read_json(data_dir / SNAPSHOT_FILE).get("fx", {}))
     write_json(data_dir / RATES_FILE, {"generated_at": stamp, "series": stored_rates})
     write_json(data_dir / FX_FILE, {"generated_at": stamp, "series": stored_fx})
     write_json(data_dir / CREDIT_FILE, {"generated_at": stamp, **stored_credit})

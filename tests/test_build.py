@@ -178,3 +178,60 @@ def test_round는_비유한값을_None으로_만든다():
     assert build._round(float("nan")) is None
     assert build._round(float("inf")) is None
     assert build._round(4.7345, 2) == 4.73
+
+
+def test_환율_단독_갱신은_금리와_기존_시리즈를_유지한다(tmp_path, monkeypatch):
+    snapshot = build.build_snapshot(
+        {"US10Y": {"2026-09-28": 5.234}},
+        {"USD_KRW": {"2026-09-18": 1388}, "USD_IDX": {"2026-09-18": 120}},
+        {}, [], sources={"rates": ["cnbc"], "fx": ["fred"]},
+    )
+    build.write_json(tmp_path / build.SNAPSHOT_FILE, snapshot)
+    build.write_json(tmp_path / build.FX_FILE, {"series": {
+        "USD_KRW": {"d": ["2026-09-18"], "v": [1388]},
+        "USD_IDX": {"d": ["2026-09-18"], "v": [120]},
+    }})
+    build.write_json(tmp_path / build.RATES_FILE, {"unchanged": True})
+    rate_bytes = (tmp_path / build.RATES_FILE).read_bytes()
+
+    def fake_collect(**kwargs):
+        assert kwargs["recent_only"] is True
+        kwargs["quote_metadata"]["USD_KRW"] = {
+            "date": "2026-09-29", "value": 1360.1, "change": 1.1,
+            "as_of": "2026-09-29T05:29:34+09:00", "source": "naver",
+        }
+        return {"USD_KRW": {"2026-09-29": 1360.1}}, ["naver"]
+
+    monkeypatch.setattr(build, "collect_fx", fake_collect)
+    monkeypatch.setattr(build, "collect_rates", lambda **kw: pytest.fail("금리 수집 금지"))
+    updated = build.refresh_fx(tmp_path)
+    assert updated["rates"] == snapshot["rates"]
+    assert (tmp_path / build.RATES_FILE).read_bytes() == rate_bytes
+    assert updated["fx"]["USD_IDX"] == snapshot["fx"]["USD_IDX"]
+    assert updated["fx"]["USD_KRW"]["change"] == 1.1  # 9/18과의 차이가 아님
+    assert updated["fx"]["USD_KRW"]["as_of"] == "2026-09-29T05:29:34+09:00"
+    assert updated["updated_at"]["rates"] == snapshot["generated_at"]
+
+
+def test_최신_환율_전체실패면_직전_파일을_보존한다(tmp_path, monkeypatch):
+    from bondmate.http import SourceError
+
+    build.write_json(tmp_path / build.SNAPSHOT_FILE, {"generated_at": "2026-09-28T00:00:00Z"})
+    before = (tmp_path / build.SNAPSHOT_FILE).read_bytes()
+
+    def fail(**kwargs):
+        raise SourceError("원본 장애")
+
+    monkeypatch.setattr(build.naver, "collect", fail)
+    monkeypatch.setattr(build.cnbc, "fetch_fx_quotes", fail)
+    with pytest.raises(SourceError):
+        build.refresh_fx(tmp_path)
+    assert (tmp_path / build.SNAPSHOT_FILE).read_bytes() == before
+
+
+def test_다른_관측값에는_과거_시세시각을_붙이지_않는다():
+    quotes = {"USD_KRW": {"date": "2026-09-29", "value": 1362}}
+    previous = {"USD_KRW": {"date": "2026-09-28", "value": 1360,
+                            "as_of": "2026-09-28T12:00:00+09:00"}}
+    build.apply_fx_metadata(quotes, {}, previous)
+    assert "as_of" not in quotes["USD_KRW"]

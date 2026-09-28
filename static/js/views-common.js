@@ -8,6 +8,19 @@
 'use strict';
 
 const BMViews = (function () {
+  let viewController = new AbortController();
+
+  function beginRender() {
+    viewController.abort();
+    viewController = new AbortController();
+  }
+
+  function onResize(callback) {
+    const signal = viewController.signal;
+    window.addEventListener('resize', debounce(() => {
+      if (!signal.aborted) callback();
+    }, 200), { signal });
+  }
   const RANGES = [
     { key: '1y', label: '1년' },
     { key: '3y', label: '3년' },
@@ -42,7 +55,7 @@ const BMViews = (function () {
       '<span class="tile-change ' + changeClass(change) + '">' +
       escapeHtml(unit === '%' ? fmtChangeBp(change)
         : fmtChange(change, opts.changeDigits == null ? 3 : opts.changeDigits)) + '</span>' +
-      (opts.date ? '<span class="tile-date">' + escapeHtml(fmtDate(opts.date)) + '</span>' : '') +
+      (opts.date ? '<span class="tile-date">' + escapeHtml(fmtQuoteDate(opts)) + '</span>' : '') +
       '</button>'
     );
   }
@@ -77,6 +90,8 @@ const BMViews = (function () {
    * @param formatter  (value) => 표시 문자열
    */
   function bindHistoryPanel(root, panelId, loader, formatter) {
+    const signal = viewController.signal;
+    let selectionId = 0;
     const panel = root.querySelector('#' + panelId);
     if (!panel) return null;
 
@@ -88,7 +103,7 @@ const BMViews = (function () {
     let points = [];
 
     function draw() {
-      if (!current) return;
+      if (!current || signal.aborted) return;
       BMChart.line(box, {
         series: [{ key: current.seriesId, label: current.label, points: BMStore.withinRange(points, range) }],
         yFormat: formatter,
@@ -97,6 +112,7 @@ const BMViews = (function () {
     }
 
     async function select(target) {
+      const requestId = ++selectionId;
       current = target;
       titleEl.textContent = target.label;
       subEl.textContent = '불러오는 중…';
@@ -110,8 +126,11 @@ const BMViews = (function () {
       });
 
       try {
-        points = await loader(target);
+        const loaded = await loader(target);
+        if (signal.aborted || requestId !== selectionId) return;
+        points = loaded;
       } catch (error) {
+        if (signal.aborted || requestId !== selectionId) return;
         box.innerHTML = '<div class="empty">히스토리를 불러오지 못했습니다 — ' + escapeHtml(error.message) + '</div>';
         subEl.textContent = '';
         return;
@@ -140,9 +159,9 @@ const BMViews = (function () {
           c.setAttribute('aria-pressed', c === chip ? 'true' : 'false'));
         draw();
       }
-    });
+    }, { signal });
 
-    window.addEventListener('resize', debounce(draw, 200));
+    onResize(draw);
     return { select, redraw: draw };
   }
 
@@ -157,6 +176,8 @@ const BMViews = (function () {
   }
 
   return {
+    beginRender,
+    onResize,
     RANGES,
     sectionHtml,
     tileHtml,

@@ -80,16 +80,70 @@ def test_CNBC_시각에서_날짜만_취한다():
 # --- 네이버 ------------------------------------------------------------------
 
 
-def test_네이버_일별_환율_표를_파싱한다():
-    html = (
-        '<tr class="up"><td class="date">2026.08.28</td><td class="num">1,380.50</td></tr>'
-        '<tr class="down"><td class="date">2026.08.27</td><td class="num">1,382.00</td></tr>'
-    )
-    assert naver.parse_page(html) == {"2026-08-28": 1380.50, "2026-08-27": 1382.00}
+def test_네이버_JSON_일별_환율을_파싱한다():
+    rows = [
+        {"localTradedAt": "2026-09-28", "closePrice": "1,360.10"},
+        {"localTradedAt": "2026-09-23", "closePrice": "1,359.00"},
+        {"localTradedAt": "bad", "closePrice": "1,300"},
+        {"localTradedAt": "2026-09-22", "closePrice": "NaN"},
+    ]
+    assert naver.parse_prices(rows) == {"2026-09-28": 1360.1, "2026-09-23": 1359.0}
 
 
-def test_네이버_빈_페이지는_빈_결과():
-    assert naver.parse_page("<table></table>") == {}
+def test_네이버_응답_형식_변경을_실패로_알린다():
+    with pytest.raises(SourceError):
+        naver.parse_prices({"error": "removed"})
+
+
+def test_네이버_최신_고시의_시각과_전일대비를_보존한다():
+    quote = naver.parse_quote({"exchangeInfo": {
+        "localTradedAt": "2026-09-29T05:29:34+09:00", "closePrice": "1,360.10",
+        "fluctuations": "-1.10", "fluctuationsRatio": "-0.08",
+    }})
+    assert quote["date"] == "2026-09-29"
+    assert quote["as_of"] == "2026-09-29T05:29:34+09:00"
+    assert quote["value"] == 1360.1
+    assert quote["change"] == -1.1
+
+
+@pytest.mark.parametrize("stamp", [None, "", "invalid", "2026-09-29"])
+def test_네이버_시세_시각을_오늘로_조작하지_않는다(stamp):
+    with pytest.raises(SourceError):
+        naver.parse_quote({"exchangeInfo": {"localTradedAt": stamp, "closePrice": "1360"}})
+
+
+def test_네이버_일별_실패에도_최신_고시는_수집한다(monkeypatch):
+    from types import SimpleNamespace
+
+    def fake_fetch(url, **kwargs):
+        if url.endswith("/prices"):
+            raise SourceError("일별 실패")
+        return SimpleNamespace(json=lambda: {"exchangeInfo": {
+            "localTradedAt": "2026-09-29T05:29:34+09:00", "closePrice": "864.16",
+        }})
+
+    monkeypatch.setattr(naver, "fetch", fake_fetch)
+    metadata = {}
+    assert naver.fetch_pair("FX_JPYKRW", quote_metadata=metadata) == {"2026-09-29": 864.16}
+    assert metadata["source"] == "naver"  # 100엔 단위도 재환산하지 않는다.
+
+
+def test_CNBC_환율의_방향_시각_전일대비를_보존한다(monkeypatch):
+    import json
+    from types import SimpleNamespace
+
+    payload = {"FormattedQuoteResult": {"FormattedQuote": [
+        {"symbol": "EUR=", "last": "1.137", "last_time": "2026-09-28T16:31:00.000-0400",
+         "change": "-0.0021", "change_pct": "-0.18%"},
+        {"symbol": "JPY=", "last": "157.39", "last_time": ""},
+    ]}}
+    monkeypatch.setattr(cnbc, "fetch", lambda *a, **kw: SimpleNamespace(text=json.dumps(payload)))
+    quotes = cnbc.fetch_fx_quotes()
+    assert quotes["EUR_USD"]["value"] == 1.137
+    assert quotes["EUR_USD"]["change"] == -0.0021
+    assert quotes["EUR_USD"]["as_of"] == "2026-09-28T16:31:00-04:00"
+    assert "USD_JPY" not in quotes
+    assert "USD_IDX" not in quotes
 
 
 # --- ECOS --------------------------------------------------------------------

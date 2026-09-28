@@ -92,6 +92,18 @@ function fmtStamp(iso) {
   );
 }
 
+/** 원본 시세 시각은 한국 시간으로, 일별 공표만 있으면 관측일로 표시한다. */
+function fmtQuoteDate(quote) {
+  if (!quote) return '—';
+  if (quote.as_of && !isNaN(new Date(quote.as_of))) {
+    return new Intl.DateTimeFormat('ko-KR', {
+      timeZone: 'Asia/Seoul', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(new Date(quote.as_of)) + ' KST · ' + (quote.quote_type || '시세');
+  }
+  return fmtDate(quote.date) + ' 관측';
+}
+
 /** 만기(년)를 축 라벨로. 0.25 → 3M, 10 → 10Y, -1 → 기준. */
 function maturityLabel(maturity) {
   if (maturity == null) return '';

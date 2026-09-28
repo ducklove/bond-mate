@@ -26,6 +26,7 @@
   const embedTab = queryParam('embed');
   const isEmbed = !!embedTab;
   let activeKey = null;
+  let refreshing = false;
 
   /* ── 테마 ───────────────────────────────────────────────────────────── */
   function applyTheme(theme) {
@@ -63,6 +64,7 @@
     tabsBox.querySelectorAll('.tab').forEach((button) =>
       button.setAttribute('aria-selected', button.dataset.tab === tab.key ? 'true' : 'false'));
 
+    BMViews.beginRender();
     app.innerHTML = '';
     try {
       tab.render(app, BMStore.snapshot);
@@ -93,13 +95,60 @@
   /* ── 부팅 ───────────────────────────────────────────────────────────── */
   function renderStamp(snapshot) {
     const stamp = document.getElementById('generatedAt');
-    if (stamp) stamp.textContent = fmtStamp(snapshot.generated_at) + ' 갱신';
+    if (stamp) {
+      const stamps = snapshot.updated_at || {};
+      const elapsed = Date.now() - Date.parse(snapshot.generated_at);
+      stamp.textContent = '환율 수집 ' + fmtStamp(stamps.fx || snapshot.generated_at) +
+        ' · 금리 수집 ' + fmtStamp(stamps.rates || snapshot.generated_at) +
+        (elapsed > 60 * 60 * 1000 ? ' · 수집 지연' : '');
+    }
 
     const sources = document.getElementById('sourceList');
     if (sources) {
       const names = new Set();
       Object.values(snapshot.sources || {}).forEach((list) => (list || []).forEach((n) => names.add(n)));
       sources.textContent = names.size ? [...names].join(', ') : '—';
+    }
+  }
+
+  async function refreshSnapshot() {
+    if (document.hidden || refreshing) return;
+    refreshing = true;
+    const before = BMStore.snapshot;
+    try {
+      const snapshot = await BMStore.loadSnapshot(true);
+      renderStamp(snapshot);
+      if (before?.generated_at === snapshot.generated_at) return;
+      const market = activeKey === 'fx' ? 'fx' : activeKey === 'credit' ? 'credit'
+        : ['government', 'policy'].includes(activeKey) ? 'rates' : null;
+      if (market && before?.updated_at?.[market] &&
+          before.updated_at[market] === snapshot.updated_at?.[market]) return;
+      // 자동 갱신으로 사용자가 보고 있던 통화·국가·기간이 초기화되지 않게 한다.
+      const tile = app.querySelector('.tile[aria-pressed="true"]');
+      const selected = tile ? { series: tile.dataset.series, kind: tile.dataset.kind } : null;
+      const ranges = [...app.querySelectorAll('[data-role="range"] [aria-pressed="true"]')]
+        .map((el) => el.dataset.range);
+      const countries = [...app.querySelectorAll('[data-country][aria-pressed="true"]')]
+        .map((el) => el.dataset.country);
+      show(activeKey || embedTab || queryParam('tab') || 'overview', { force: true });
+      if (countries.length) {
+        const chips = [...app.querySelectorAll('[data-country]')];
+        // 선택할 국가를 먼저 켜서 최소 한 국가 조건을 보존한다.
+        for (const desired of [true, false]) chips.forEach((el) => {
+          if (countries.includes(el.dataset.country) === desired &&
+              (el.getAttribute('aria-pressed') === 'true') !== desired) el.click();
+        });
+      }
+      if (selected) [...app.querySelectorAll('.tile')].find((el) =>
+        el.dataset.series === selected.series && el.dataset.kind === selected.kind)?.click();
+      app.querySelectorAll('[data-role="range"]').forEach((row, index) => {
+        [...row.querySelectorAll('[data-range]')].find((el) => el.dataset.range === ranges[index])?.click();
+      });
+    } catch (error) {
+      const stamp = document.getElementById('generatedAt');
+      if (stamp) stamp.textContent = '새 데이터 확인 실패 · 기존 값 표시 중 · 1분 후 재시도';
+    } finally {
+      refreshing = false;
     }
   }
 
@@ -120,6 +169,9 @@
     }
 
     renderStamp(BMStore.snapshot);
+    setInterval(refreshSnapshot, 60 * 1000);
+    document.addEventListener('visibilitychange', refreshSnapshot);
+    window.addEventListener('online', refreshSnapshot);
 
     if (isEmbed) {
       show(embedTab);

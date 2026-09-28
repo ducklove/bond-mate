@@ -16,6 +16,7 @@ const BMStore = (function () {
     pending: {},          // 같은 파일을 두 번 받지 않도록 진행 중 Promise 보관
     error: null,
   };
+  let snapshotPending = null;
 
   function dataBase() {
     const override = queryParam('data');
@@ -24,15 +25,23 @@ const BMStore = (function () {
   }
 
   async function fetchJson(path) {
-    const response = await fetch(dataBase() + '/' + path, { cache: 'no-cache' });
+    const response = await fetch(dataBase() + '/' + path + '?v=' + Date.now(), { cache: 'no-store' });
     if (!response.ok) throw new Error(path + ' — HTTP ' + response.status);
     return response.json();
   }
 
-  async function loadSnapshot() {
-    if (state.snapshot) return state.snapshot;
-    state.snapshot = await fetchJson('current.json');
-    return state.snapshot;
+  function loadSnapshot(force) {
+    if (snapshotPending) return snapshotPending;
+    if (state.snapshot && !force) return Promise.resolve(state.snapshot);
+    snapshotPending = fetchJson('current.json').then((snapshot) => {
+      if (state.snapshot?.generated_at !== snapshot.generated_at) {
+        state.history = {};
+        state.pending = {};
+      }
+      state.snapshot = snapshot;
+      return snapshot;
+    }).finally(() => { snapshotPending = null; });
+    return snapshotPending;
   }
 
   /** 히스토리 파일 하나를 지연 로딩한다. 같은 이름의 동시 호출은 합쳐진다. */
@@ -40,17 +49,20 @@ const BMStore = (function () {
     if (state.history[name]) return Promise.resolve(state.history[name]);
     if (state.pending[name]) return state.pending[name];
 
-    state.pending[name] = fetchJson(name + '.json')
+    const request = fetchJson(name + '.json')
       .then((payload) => {
-        state.history[name] = payload;
-        delete state.pending[name];
+        if (state.pending[name] === request) {
+          state.history[name] = payload;
+          delete state.pending[name];
+        }
         return payload;
       })
       .catch((error) => {
-        delete state.pending[name];
+        if (state.pending[name] === request) delete state.pending[name];
         throw error;
       });
-    return state.pending[name];
+    state.pending[name] = request;
+    return request;
   }
 
   /** 병렬 배열({d,v})을 차트가 쓰는 [[날짜, 값]] 로. */
