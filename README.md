@@ -190,6 +190,27 @@ GitHub Actions 예약 실행은 혼잡 시 지연될 수 있으므로 위 간격
 네이버의 종료된 `exchangeDailyQuote.naver`(HTTP 410)는 사용하지 않는다.
 달러지수(`USD_IDX`)는 FRED의 광의 무역가중 지수를 유지하며, ICE DXY로 대체하지 않는다.
 
+## Value Compass 생태계 연동
+
+[Value Compass](https://ducklove.duckdns.org:3691) 허브 생태계의 한 도구다.
+
+- **레지스트리 id**: `bond-mate` (integration key `bondMate`, 허브 화면 `/bonds`, 정본: value-invest
+  [`config/ecosystem.json`](https://github.com/ducklove/value-invest/blob/master/config/ecosystem.json)).
+- **에코시스템 바·테마**: `templates/index.html` 의 `<vc-shell tool="bond-mate">` 와 head 의
+  `<!-- vc:theme-boot -->` 블록(아래 [테마](#테마)). iframe·`?embed` 에서는 바가 스스로 숨는다.
+- **벤더링 파일 (직접 수정 금지)**: `static/vc-shell.js`, `static/vc-tokens.css`, `bondmate/vc_publish.py`,
+  theme-boot 블록. 허브에서 고친 뒤 `node ../value-invest/scripts/sync-ecosystem.mjs --write --only bond-mate`.
+- **인바운드 딥링크**: 허브 `viewLink` 는 `?tab=<탭>`, 임베드는 `?embed=<탭>`
+  (탭 키 `overview` `government` `policy` `fx` `credit` `issuance`). 그 밖에 `?theme=light|dark`(저장 안 함),
+  `?bg=transparent`, `?data=<경로>`. 허브와의 `vc:ready`·`vc:height`·`vc:theme` 메시지는 위 [임베드](#임베드) 참고.
+- **허브용 요약**: data 브랜치 `data/summary.json`·`data/version.json`(envelope v1)을 `update-data.yml` 이
+  발행하고 `deploy.yml` 이 Pages 루트로 복사한다(`https://ducklove.github.io/bond-mate/summary.json`).
+  계약: [value-invest `docs/ecosystem/data-contract.md`](https://github.com/ducklove/value-invest/blob/master/docs/ecosystem/data-contract.md) §6.8.
+  허브 서버는 요약을 먼저 읽고 실패하면 `data/current.json` 으로 폴백하며, 허브 투자정보 탭은 브라우저에서
+  `data/current.json` 을 직접 받아 병합하므로 그 스키마도 계약으로 유지한다.
+- **허브·생태계 서비스**: **finance-pi** 를 금리·환율 1순위 원본으로 쓴다(`FINANCE_PI_*` 환경변수, 위 [데이터 출처](#데이터-출처와-우선순위)).
+  보유종목 배지(`heldBadges: false`), `/api/internal/notify`, `/api/asset-quotes`, kis-proxy 는 쓰지 않는다.
+
 ## 구조
 
 ```
