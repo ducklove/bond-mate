@@ -36,13 +36,40 @@ jobs:
             echo '{"generated_at":null,"rates":{},"fx":{},"credit":{},"curves":{},"offerings":[]}' > data/current.json
           fi
 
+      # 허브용 요약(Value Compass 발행 데이터 계약 v1) — data 브랜치의
+      # data/summary.json·version.json 을 Pages 루트로. 사이트의 data/ 와 섞지 않게
+      # 따로 받는다. 받을 수 없으면(도입 직후 등) current.json 에서 오프라인으로 만든다.
+      - name: Fetch summary (data 브랜치)
+        run: |
+          mkdir -p vc-summary
+          if git rev-parse --verify -q FETCH_HEAD >/dev/null; then
+            for name in summary version; do
+              git show "FETCH_HEAD:data/$name.json" > "vc-summary/$name.json" 2>/dev/null \
+                || rm -f "vc-summary/$name.json"
+            done
+          fi
+
       - name: Assemble static site
         run: |
           mkdir -p _site
           cp templates/index.html _site/index.html
           cp manifest.webmanifest _site/manifest.webmanifest
+          # static/ 에는 value-invest 에서 벤더링한 vc-shell.js·vc-tokens.css 도 들어 있다.
           cp -r static _site/static
           cp -r data _site/data
+
+      - name: Publish summary.json (Pages 루트)
+        run: |
+          if [ -s vc-summary/summary.json ] && [ -s vc-summary/version.json ]; then
+            cp vc-summary/summary.json vc-summary/version.json _site/
+          else
+            python3 -m bondmate.summary --data data --out _site \
+              || echo "summary 를 만들지 못했습니다 — 허브는 current.json 으로 폴백합니다."
+          fi
+          # 계약 위반 파일은 싣지 않는다(허브가 레거시 경로로 폴백하게).
+          if [ -f _site/summary.json ] && ! python3 bondmate/vc_publish.py validate _site/summary.json; then
+            rm -f _site/summary.json _site/version.json
+          fi
 
       - uses: actions/upload-pages-artifact@v3
         with:

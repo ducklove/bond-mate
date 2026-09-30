@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="ko" data-theme="auto">
+<html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -7,10 +7,40 @@
 <meta name="description" content="각국 기준금리와 만기별 국채, 원화·주요 통화 환율, 신용등급별 회사채, 대형 발행사의 채권 발행 조달금리를 한곳에서 봅니다.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📈</text></svg>">
 <link rel="manifest" href="manifest.webmanifest">
+<!-- 테마 pre-paint(FOUC 방지): ?theme → 공용 'theme' 키 → 시스템 설정. value-invest sync-ecosystem 이 채운다 -->
+<!-- vc:theme-boot --><script>
+/* vc-theme-boot v1 (value-invest static/ecosystem/vc-theme-boot.js) — pre-paint theme; inlined by sync-ecosystem, do not edit copies. */
+(function () {
+  var d = document.documentElement, p = null, s = null, t, v, i;
+  var legacy = ['bondmate.theme', 'eiayn:theme:v1', 'spac-hunter-theme', 'preferred-theme', 'nps-theme'];
+  try { p = new URLSearchParams(location.search); } catch (e) { p = null; }
+  try {
+    s = localStorage.getItem('theme');
+    if (s === null) {
+      for (i = 0; i < legacy.length && s === null; i++) {
+        v = localStorage.getItem(legacy[i]);
+        if (v && v.charAt(0) === '"') { try { v = JSON.parse(v); } catch (e) { v = null; } }
+        if (v === 'light' || v === 'dark') { s = v; localStorage.setItem('theme', v); }
+      }
+    }
+  } catch (e) { s = null; }
+  t = p && p.get('theme');
+  if (t !== 'light' && t !== 'dark') t = s === 'light' || s === 'dark' ? s : null;
+  if (!t) t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  d.setAttribute('data-theme', t);
+  v = p && p.get('embed');
+  if ((v !== null && v !== undefined && v !== '0' && v !== 'false') || (p && p.get('headless') === '1')) d.setAttribute('data-embed', v || '');
+})();
+</script><!-- /vc:theme-boot -->
+<!-- Value Compass 공용 토큰은 자체 CSS 보다 먼저 (bondmate.css 가 --vc-* 를 alias 한다) -->
+<link rel="stylesheet" href="./static/vc-tokens.css?v=1.0.0">
 <link rel="stylesheet" href="static/css/bondmate.css">
+<script defer src="./static/vc-shell.js?v=1.0.0"></script>
 <script defer src="./static/analytics.js" data-project="bond-mate"></script>
 </head>
 <body>
+<!-- Value Compass 에코시스템 바. 임베드·iframe 안에서는 스스로 숨는다. JS 가 없으면 안의 링크가 그대로 보인다 -->
+<vc-shell tool="bond-mate"><a class="hub-link" href="https://ducklove.duckdns.org:3691" rel="noopener">Value Compass ↗</a></vc-shell>
 
 <!-- 임베드(?embed=…)일 때는 헤더·탭이 숨는다. bondmate.css 의 body.is-embed 참고 -->
 <header class="app-head">

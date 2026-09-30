@@ -14,7 +14,7 @@
 | 국채 | 국가별 만기 곡선 겹쳐보기(16개국), 만기별 표, 만기별 히스토리 |
 | 기준금리 | 각국 정책금리·익일물·10년물과 장단기 차 |
 | 환율 | 원화 크로스 8종 + 주요 통화쌍 8종, 통화별 히스토리 |
-| 사채 | 미국 ICE BofA 등급별(AAA~CCC) 수익률·OAS, 한국 회사채 AA-/BBB- |
+| 신용 | 미국 ICE BofA 등급별(AAA~CCC) 수익률·OAS, 한국 회사채 AA-/BBB- |
 | 발행 | 구글·메타·오라클 등 대형 발행사의 채권 발행 이력과 **조달금리** |
 
 모든 지표는 타일을 누르면 히스토리 그래프가 열리고 1/3/5/10년·전체로 구간을
@@ -96,8 +96,9 @@ mkdir -p _site && cp templates/index.html _site/ && cp manifest.webmanifest _sit
 ## 테스트
 
 ```bash
-python -m pytest -q        # 75개 — 파서·조립·프론트 구조 계약
+python -m pytest -q        # 111개 — 파서·조립·summary·프론트 구조 계약
 python -m ruff check .
+node --test tests/frontend-refresh.test.cjs tests/frontend-shell.test.cjs   # 자동 갱신·테마·iframe 메시지
 ```
 
 ## 임베드
@@ -111,7 +112,7 @@ https://ducklove.github.io/bond-mate/?embed=<탭>&theme=<light|dark>
 | 파라미터 | 설명 |
 |---|---|
 | `embed` | `overview` `government` `policy` `fx` `credit` `issuance` — 헤더·탭·푸터를 걷어내고 그 화면만 |
-| `theme` | `light` / `dark`. 생략하면 보는 사람의 시스템 설정 |
+| `theme` | `light` / `dark`. 적용만 하고 저장하지 않는다. 생략하면 저장된 공용 테마 → 시스템 설정 |
 | `bg` | `transparent` 를 주면 배경을 비워 부모 카드에 녹인다(기본은 테마 배경을 칠함) |
 | `tab` | 독립 실행에서 초기 탭 지정 (딥링크) |
 | `data` | 스냅샷·히스토리 위치 재지정 |
@@ -126,6 +127,14 @@ window.addEventListener('message', (event) => {
 });
 ```
 
+value-invest 허브와는 Value Compass iframe 프로토콜도 함께 쓴다(허브 origin 으로만 보낸다):
+
+| 방향 | 메시지 | 의미 |
+|---|---|---|
+| 자식 → 허브 | `{source:'vc', type:'vc:ready', tool:'bond-mate'}` | 테마 메시지를 받을 수 있다 — 허브는 이걸 받은 뒤 리로드 대신 `vc:theme` 을 보낸다 |
+| 자식 → 허브 | `{source:'vc', type:'vc:height', tool:'bond-mate', height}` | 위 `height` 와 같은 값(구 형식도 계속 보낸다) |
+| 허브 → 자식 | `{source:'vc', type:'vc:theme', theme:'light'\|'dark'}` | 리로드 없이 테마 적용·차트 재렌더(origin 검증, 저장하지 않음) |
+
 탭 키와 파라미터 이름은 부모가 URL 에 박아 쓰는 **계약**이라 바꾸지 않는다
 (`tests/test_frontend_structure.py` 가 고정).
 
@@ -138,6 +147,12 @@ window.addEventListener('message', (event) => {
 | `data/fx.json` | 환율 히스토리 |
 | `data/credit.json` | 등급별 회사채 수익률·OAS 히스토리 |
 | `data/issuers.json` | 회사채 발행 이력 전체 |
+| `data/summary.json` → Pages `/summary.json` | 허브용 요약(Value Compass 발행 데이터 계약 v1 envelope, 약 10 KB) — 시리즈별 최신값·하이라이트. 내용이 같으면 다시 쓰지 않는다 |
+| `data/version.json` → Pages `/version.json` | summary 의 contentHash (변경 감지용, 1 KB 미만) |
+
+`summary.json`·`version.json` 은 data 브랜치에 살고 `deploy.yml` 이 Pages 루트로 복사한다.
+data 브랜치에 아직 없으면 배포가 `python -m bondmate.summary --data data --out _site` 로
+current.json 에서 오프라인으로 만든다. 계약: value-invest `docs/ecosystem/data-contract.md` §6.8.
 
 히스토리는 병렬 배열(`{"d": [...], "v": [...]}`)이고, 구간별로 해상도를 낮춘다
 — 최근 3년 일간, 3~10년 주간, 그 이전 월간. 미국 10년물 6만여 관측이
@@ -163,7 +178,14 @@ python generate_data.py --reset-series GB_BASE
 | 사이트 배포 | `master` push, 또는 데이터가 바뀌면 자동 트리거 |
 
 GitHub Actions 예약 실행은 혼잡 시 지연될 수 있으므로 위 간격은 목표 주기다.
-`generated_at`/`updated_at`은 수집 시각, 환율별 `as_of`는 원본 시세 시각이다.
+`generated_at`/`updated_at`은 **값이 마지막으로 바뀐 시각**이고 `checked_at`은 수집기가
+마지막으로 확인한 시각, 환율별 `as_of`는 원본 시세 시각이다. 타임스탬프를 뺀 내용이 직전과
+같으면 `generated_at`/`updated_at`과 히스토리 파일을 그대로 두고 `checked_at`만 찍으며,
+워크플로는 커밋·배포를 건너뛴다(단 45분마다 한 번은 발행해 화면의 '수집 지연' 판단이
+정상 수집을 지연으로 오인하지 않게 한다).
+
+한 소스가 실패한 실행에서도 금리·등급별 회사채·환율 히스토리는 **직전 히스토리와 합쳐**
+저장한다 — 이번에 못 받은 시리즈도 지워지지 않는다. 시리즈를 정말 버리려면 `reset_series`.
 최신 환율은 `api.stock.naver.com`의 JSON 고시와 CNBC 시세를 사용한다.
 네이버의 종료된 `exchangeDailyQuote.naver`(HTTP 410)는 사용하지 않는다.
 달러지수(`USD_IDX`)는 FRED의 광의 무역가중 지수를 유지하며, ICE DXY로 대체하지 않는다.
@@ -177,7 +199,22 @@ bondmate/
   history.py      히스토리 저장 포맷·해상도 축소
   http.py         공유 세션·재시도·User-Agent
   sources/        finance_pi · ecos · bis · mof · fred · cnbc · naver · edgar
+  summary.py      허브용 summary.json (Value Compass envelope, requests 불필요)
+  vc_publish.py   [벤더링] envelope·해시 헬퍼 — value-invest 에서 복사, 직접 고치지 않는다
 templates/        index.html (배포 시 _site 로 조립)
 static/           CSS 1개 + JS 9개 (빌드 없음, script 순서가 의존성 계약)
+  vc-shell.js     [벤더링] Value Compass 에코시스템 바 <vc-shell>·테마 API (VCShell)
+  vc-tokens.css   [벤더링] 공용 디자인 토큰 --vc-* (방향색·글꼴을 alias)
 generate_data.py  Actions 진입점
 ```
+
+벤더링 파일과 index.html 의 `<!-- vc:theme-boot -->` 블록은 value-invest 에서
+`node scripts/sync-ecosystem.mjs --write --only bond-mate` 로 갱신한다.
+
+### 테마
+
+Value Compass 공용 규약을 따른다. `?theme=light|dark`(저장 안 함) → localStorage
+`theme`(ducklove.github.io 의 다른 대시보드와 공유, 없으면 auto) → 시스템 설정 순이다.
+head 의 theme-boot 가 칠하기 전에 적용하고(깜빡임 없음), 옛 `bondmate.theme` 값은 한 번
+`theme` 으로 옮긴 뒤 지운다. 🌗 토글은 dark → light → auto(키 삭제)를 돌며 `VCShell.setTheme`
+을 쓴다.

@@ -235,3 +235,187 @@ def test_다른_관측값에는_과거_시세시각을_붙이지_않는다():
                             "as_of": "2026-09-28T12:00:00+09:00"}}
     build.apply_fx_metadata(quotes, {}, previous)
     assert "as_of" not in quotes["USD_KRW"]
+
+
+# --- 소스 실패에도 히스토리 보존 (합집합) ----------------------------------------
+def _stub_collectors(monkeypatch, *, rates=None, kr_credit=None, fx=None, credit=None):
+    monkeypatch.setattr(build.finance_pi, "probe", lambda: False)
+    monkeypatch.setattr(build, "collect_rates", lambda **kw: (rates or {}, kr_credit or {}, ["stub"]))
+    monkeypatch.setattr(build, "collect_fx", lambda **kw: (fx or {}, ["stub"]))
+    monkeypatch.setattr(
+        build, "collect_credit",
+        lambda kr: ({**(credit or {"yield": {}, "oas": {}}), **({"kr_yield": kr} if kr else {})}, ["stub"]),
+    )
+
+
+def test_이번에_빠진_금리_시리즈도_직전_히스토리를_유지한다(tmp_path, monkeypatch):
+    """MOF 가 한 번 실패해도 JP1Y 히스토리가 사라지면 안 된다(이번 달 CSV 만 주는 소스)."""
+    build.write_json(tmp_path / build.RATES_FILE, {"series": {
+        "JP1Y": {"d": ["2026-08-17", "2026-08-18"], "v": [0.71, 0.72]},
+        "US10Y": {"d": ["2026-08-18"], "v": [4.3]},
+    }})
+    _stub_collectors(monkeypatch, rates={"US10Y": {"2026-08-19": 4.31}})
+
+    snapshot = build.run(tmp_path, skip_issuers=True)
+
+    stored = build.read_json(tmp_path / build.RATES_FILE)["series"]
+    assert stored["JP1Y"] == {"d": ["2026-08-17", "2026-08-18"], "v": [0.71, 0.72]}
+    assert stored["US10Y"]["d"] == ["2026-08-18", "2026-08-19"]
+    # 스냅샷에도 남아 허브 패널이 한 번의 실패로 비지 않는다.
+    assert snapshot["rates"]["JP1Y"]["value"] == 0.72
+    assert snapshot["rates"]["JP1Y"]["date"] == "2026-08-18"
+
+
+def test_등급별_회사채_수집이_실패해도_직전_히스토리를_유지한다(tmp_path, monkeypatch):
+    build.write_json(tmp_path / build.CREDIT_FILE, {
+        "generated_at": "2026-08-18T00:00:00+00:00",
+        "yield": {"BBB": {"d": ["2026-08-18"], "v": [5.1]}},
+        "oas": {"BBB": {"d": ["2026-08-18"], "v": [0.97]}},
+        "kr_yield": {"AA-": {"d": ["2026-08-18"], "v": [3.2]}},
+    })
+    # FRED 실패(빈 yield/oas) + ECOS 실패(kr_yield 없음)
+    _stub_collectors(monkeypatch, rates={"US10Y": {"2026-08-19": 4.31}})
+
+    snapshot = build.run(tmp_path, skip_issuers=True)
+
+    stored = build.read_json(tmp_path / build.CREDIT_FILE)
+    assert stored["yield"]["BBB"]["v"] == [5.1]
+    assert stored["oas"]["BBB"]["v"] == [0.97]
+    assert stored["kr_yield"]["AA-"]["v"] == [3.2]
+    assert "generated_at" not in stored["yield"]
+    assert snapshot["credit"]["BBB"]["oas"]["value"] == 0.97
+    assert snapshot["credit_kr"]["AA-"]["value"] == 3.2
+
+
+def test_등급별_회사채는_새_관측치를_직전_히스토리에_합친다(tmp_path, monkeypatch):
+    build.write_json(tmp_path / build.CREDIT_FILE, {
+        "yield": {"BBB": {"d": ["2026-08-18"], "v": [5.1]}, "CCC": {"d": ["2026-08-18"], "v": [14.0]}},
+        "oas": {},
+    })
+    _stub_collectors(monkeypatch, credit={"yield": {"BBB": {"2026-08-19": 5.2}}, "oas": {}})
+
+    build.run(tmp_path, skip_issuers=True)
+
+    stored = build.read_json(tmp_path / build.CREDIT_FILE)["yield"]
+    assert stored["BBB"] == {"d": ["2026-08-18", "2026-08-19"], "v": [5.1, 5.2]}
+    assert stored["CCC"]["v"] == [14.0]
+
+
+def test_reset_series는_합집합에서도_다시_받지_못한_시리즈를_버린다(tmp_path, monkeypatch):
+    build.write_json(tmp_path / build.RATES_FILE, {"series": {
+        "GB_BASE": {"d": ["2026-08-25"], "v": [3.73]},
+        "JP1Y": {"d": ["2026-08-25"], "v": [0.7]},
+    }})
+    build.write_json(tmp_path / build.CREDIT_FILE, {"yield": {"CCC": {"d": ["2026-08-25"], "v": [14.0]}}})
+    _stub_collectors(monkeypatch)
+
+    build.run(tmp_path, skip_issuers=True, reset_series={"GB_BASE", "CCC"})
+
+    assert set(build.read_json(tmp_path / build.RATES_FILE)["series"]) == {"JP1Y"}
+    assert "CCC" not in build.read_json(tmp_path / build.CREDIT_FILE)["yield"]
+
+
+def test_FRED_금리는_같은_시리즈를_한_번만_받는다(monkeypatch):
+    """DFEDTARU 는 국채 커브 표와 정책금리 표 양쪽에 있다."""
+    calls = []
+
+    def fake_fetch(fred_id):
+        calls.append(fred_id)
+        return {"2026-08-18": 1.0}
+
+    monkeypatch.setattr(build.fred, "fetch_series", fake_fetch)
+    rates = build.fred.collect_rates()
+    assert calls.count("DFEDTARU") == 1
+    assert calls.count("ECBDFR") == 1
+    assert rates["US_BASE"] == {"2026-08-18": 1.0}
+    assert rates["DE_BASE"] == rates["FR_BASE"]
+
+
+# --- 값이 그대로면 타임스탬프 유지 (no-op 실행) ---------------------------------
+def test_값이_그대로면_generated_at과_updated_at을_유지하고_checked_at만_찍는다(tmp_path, monkeypatch):
+    _stub_collectors(
+        monkeypatch,
+        rates={"US10Y": {"2026-08-18": 4.3, "2026-08-19": 4.31}},
+        fx={"USD_KRW": {"2026-08-19": 1388.0}},
+        credit={"yield": {"BBB": {"2026-08-19": 5.2}}, "oas": {"BBB": {"2026-08-19": 0.97}}},
+    )
+    first = build.run(tmp_path, skip_issuers=True)
+    history_bytes = {
+        name: (tmp_path / name).read_bytes()
+        for name in (build.RATES_FILE, build.FX_FILE, build.CREDIT_FILE, build.ISSUERS_FILE,
+                     "summary.json", "version.json")
+    }
+
+    monkeypatch.setattr(build, "datetime", _FrozenDatetime("2099-01-01T00:00:00+00:00"))
+    second = build.run(tmp_path, skip_issuers=True)
+
+    assert second["generated_at"] == first["generated_at"]
+    assert second["updated_at"] == first["updated_at"]
+    assert second["checked_at"] == "2099-01-01T00:00:00+00:00"
+    for name, before in history_bytes.items():
+        assert (tmp_path / name).read_bytes() == before, f"{name} 가 다시 쓰였다"
+
+
+def test_바뀐_시장의_updated_at만_새로_찍힌다(tmp_path, monkeypatch):
+    rates = {"US10Y": {"2026-08-19": 4.31}}
+    _stub_collectors(monkeypatch, rates=rates, fx={"USD_KRW": {"2026-08-19": 1388.0}})
+    first = build.run(tmp_path, skip_issuers=True)
+
+    _stub_collectors(monkeypatch, rates=rates, fx={"USD_KRW": {"2026-08-20": 1390.0}})
+    monkeypatch.setattr(build, "datetime", _FrozenDatetime("2099-01-01T00:00:00+00:00"))
+    second = build.run(tmp_path, skip_issuers=True)
+
+    assert second["generated_at"] == "2099-01-01T00:00:00+00:00"
+    assert second["updated_at"]["fx"] == "2099-01-01T00:00:00+00:00"
+    assert second["updated_at"]["rates"] == first["updated_at"]["rates"]
+    assert second["updated_at"]["credit"] == first["updated_at"]["credit"]
+    rates_file = build.read_json(tmp_path / build.RATES_FILE)
+    assert rates_file["generated_at"] == first["generated_at"], "금리 히스토리는 그대로다"
+
+
+def test_환율_단독_갱신도_값이_그대로면_타임스탬프를_유지한다(tmp_path, monkeypatch):
+    _stub_collectors(monkeypatch, rates={"US10Y": {"2026-08-19": 4.31}}, fx={"USD_KRW": {"2026-08-19": 1388.0}})
+    first = build.run(tmp_path, skip_issuers=True)
+    fx_bytes = (tmp_path / build.FX_FILE).read_bytes()
+
+    monkeypatch.setattr(build, "collect_fx", lambda **kw: ({"USD_KRW": {"2026-08-19": 1388.0}}, ["stub"]))
+    monkeypatch.setattr(build, "datetime", _FrozenDatetime("2099-01-01T00:00:00+00:00"))
+    again = build.refresh_fx(tmp_path)
+
+    assert again["generated_at"] == first["generated_at"]
+    assert again["updated_at"] == first["updated_at"]
+    assert again["checked_at"] == "2099-01-01T00:00:00+00:00"
+    assert (tmp_path / build.FX_FILE).read_bytes() == fx_bytes
+
+
+def test_publish_due는_내용이_바뀌었거나_하트비트가_지났을_때만_참이다():
+    from datetime import UTC, datetime, timedelta
+
+    now = datetime(2026, 9, 30, 12, 0, tzinfo=UTC)
+    previous = {"generated_at": "2026-09-30T09:00:00+00:00", "checked_at": "2026-09-30T11:40:00+00:00"}
+    same = {**previous, "checked_at": now.isoformat()}
+    assert build.publish_due(previous, same, now=now) is False
+    assert build.publish_due(previous, {**same, "generated_at": now.isoformat()}, now=now) is True
+    late = datetime(2026, 9, 30, 11, 40, tzinfo=UTC) + build.HEARTBEAT   # 직전 발행의 checked_at 기준
+    assert build.publish_due(previous, same, now=late - timedelta(minutes=1)) is False
+    assert build.publish_due(previous, same, now=late) is True
+    assert build.publish_due({}, same, now=now) is True, "직전 파일이 없으면(첫 실행) 발행"
+    # 옛 파일에는 checked_at 이 없다 — generated_at 으로 판단한다.
+    assert build.publish_due({"generated_at": "2026-09-30T11:50:00+00:00"},
+                             {"generated_at": "2026-09-30T11:50:00+00:00"}, now=now) is False
+
+
+class _FrozenDatetime:
+    """build.datetime.now() 만 고정한다(나머지는 진짜 datetime)."""
+
+    def __init__(self, iso):
+        from datetime import datetime
+
+        self._real = datetime
+        self._now = datetime.fromisoformat(iso)
+
+    def now(self, tz=None):
+        return self._now if tz is None else self._now.astimezone(tz)
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)

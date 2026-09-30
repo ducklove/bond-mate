@@ -7,12 +7,16 @@
 
 EDGAR 수집은 발행사 13곳 × 공시 여러 건이라 수 분이 걸린다. 금리·환율은 30분
 주기로 자주 돌리고 발행 이력은 하루 한 번만 갱신하려고 ``--skip-issuers`` 를 둔다.
+
+GitHub Actions 에서는 ``$GITHUB_OUTPUT`` 에 ``publish=true|false`` 를 남긴다. 값이
+그대로인 실행은(하트비트 간격 안이면) 커밋·배포를 건너뛴다 — :func:`build.publish_due`.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -45,6 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     reset_series = {s.strip() for s in args.reset_series.split(",") if s.strip()}
+    previous = build.read_json(Path(args.out) / build.SNAPSHOT_FILE)
     if args.fx_only:
         snapshot = build.refresh_fx(Path(args.out))
     else:
@@ -55,12 +60,24 @@ def main(argv: list[str] | None = None) -> int:
         print("금리·환율을 하나도 수집하지 못했습니다 — 실패로 처리합니다.", file=sys.stderr)
         return 1
 
+    publish = build.publish_due(previous, snapshot)
+    _write_output("publish", "true" if publish else "false")
+
     print(
-        f"생성 완료 {snapshot['generated_at']} — "
+        f"{'생성 완료' if publish else '변경 없음(발행 생략)'} {snapshot['generated_at']} — "
         f"금리 {rates} · 환율 {fx} · 등급 {len(snapshot['credit'])} · "
         f"발행 {len(snapshot['offerings'])}건"
     )
     return 0
+
+
+def _write_output(name: str, value: str) -> None:
+    """GitHub Actions 단계 출력. 로컬 실행에서는 아무것도 하지 않는다."""
+    target = os.environ.get("GITHUB_OUTPUT")
+    if not target:
+        return
+    with open(target, "a", encoding="utf-8") as fh:
+        fh.write(f"{name}={value}\n")
 
 
 if __name__ == "__main__":
