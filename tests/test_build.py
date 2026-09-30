@@ -405,6 +405,14 @@ def test_publish_due는_내용이_바뀌었거나_하트비트가_지났을_때�
                              {"generated_at": "2026-09-30T11:50:00+00:00"}, now=now) is False
 
 
+def test_하트비트는_수집_지연_기준에_예약_지연_여유를_남긴다():
+    """화면은 checked_at 이 1시간 넘으면 '수집 지연'이다. 하트비트 + cron 간격(5분) +
+    실행·배포(~5분)에 Actions 예약 지연 20분을 더해도 1시간 안이어야 오탐하지 않는다."""
+    from datetime import timedelta
+
+    assert build.HEARTBEAT + timedelta(minutes=5 + 5 + 20) <= timedelta(hours=1)
+
+
 class _FrozenDatetime:
     """build.datetime.now() 만 고정한다(나머지는 진짜 datetime)."""
 

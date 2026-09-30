@@ -98,7 +98,7 @@ jobs:
         run: python generate_data.py ${{ steps.scope.outputs.args }} --reset-series "${{ inputs.reset_series }}"
 
       # 값이 그대로면 generate_data.py 가 generated_at/updated_at 을 유지하고
-      # checked_at 만 찍는다. publish=false 면(하트비트 45분 안) 커밋·배포하지 않는다.
+      # checked_at 만 찍는다. publish=false 면(하트비트 30분 안) 커밋·배포하지 않는다.
       - name: Commit and push (data 브랜치)
         id: commit
         run: |

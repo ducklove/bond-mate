@@ -55,7 +55,9 @@ RECENT_OFFERINGS = 40
 
 # 값이 그대로여도 이 간격마다 한 번은 발행한다 — checked_at 이 사이트에 반영돼야
 # 화면의 '수집 지연'(1시간) 표시가 정상 수집을 지연으로 오인하지 않는다.
-HEARTBEAT = timedelta(minutes=45)
+# 사이트의 checked_at 나이는 최대 HEARTBEAT + cron 간격(5분) + 실행·배포 시간 +
+# Actions 예약 지연이므로, 1시간 기준에 여유(예약 지연 20분 이상)를 두려고 30분.
+HEARTBEAT = timedelta(minutes=30)
 
 # 내용 비교에서 빼는 스냅샷 키 (시각만 담는다).
 VOLATILE_KEYS = frozenset({"generated_at", "updated_at", "checked_at"})

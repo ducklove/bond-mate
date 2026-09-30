@@ -20,11 +20,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import re
 import sys
 from pathlib import Path
 
 from bondmate import vc_publish
+
+logger = logging.getLogger(__name__)
 
 TOOL_ID = "bond-mate"
 SUMMARY_FILE = "summary.json"
@@ -178,7 +181,9 @@ def publish(data_dir: Path, snapshot: dict) -> bool:
     """
     try:
         envelope = build_envelope(snapshot)
-    except vc_publish.EnvelopeError:
+    except vc_publish.EnvelopeError as exc:
+        # 수집 자체는 계속한다. 직전 summary 가 남으니 조용히 넘기지 않고 남긴다.
+        logger.warning("summary.json 을 만들지 못해 직전 파일을 유지합니다 — %s", exc)
         return False
     changed = vc_publish.write_if_changed(data_dir / SUMMARY_FILE, envelope)
     vc_publish.write_version(data_dir / VERSION_FILE, {SUMMARY_FILE: envelope}, tool=TOOL_ID)
