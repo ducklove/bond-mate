@@ -139,10 +139,16 @@ def fetch_series(fred_id: str) -> dict[str, float]:
     return _parse_csv_text(fetch(CSV_URL, params={"id": fred_id}).text, fred_id)
 
 
-def _collect(mapping: dict[str, str]) -> dict[str, dict[str, float]]:
-    """매핑을 훑되, 한 시리즈의 실패가 나머지를 막지 않게 한다."""
+def _collect(
+    mapping: dict[str, str], cache: dict[str, dict[str, float]] | None = None
+) -> dict[str, dict[str, float]]:
+    """매핑을 훑되, 한 시리즈의 실패가 나머지를 막지 않게 한다.
+
+    ``cache`` 를 넘기면 여러 매핑이 같은 FRED 시리즈를 한 번만 받는다
+    (``DFEDTARU`` 는 국채 커브와 정책금리 양쪽에 있다).
+    """
     out: dict[str, dict[str, float]] = {}
-    cache: dict[str, dict[str, float]] = {}
+    cache = {} if cache is None else cache
     for series_id, fred_id in mapping.items():
         if fred_id in cache:                     # ECB 금리처럼 여러 국가가 공유
             out[series_id] = cache[fred_id]
@@ -160,9 +166,10 @@ def _collect(mapping: dict[str, str]) -> dict[str, dict[str, float]]:
 def collect_rates() -> dict[str, dict[str, float]]:
     """국채 커브·각국 10년물·정책금리를 한 번에."""
     rates: dict[str, dict[str, float]] = {}
-    rates.update(_collect(TREASURY_SERIES))
-    rates.update(_collect(GOVT_10Y_SERIES))
-    rates.update(_collect(POLICY_SERIES))
+    cache: dict[str, dict[str, float]] = {}
+    rates.update(_collect(TREASURY_SERIES, cache))
+    rates.update(_collect(GOVT_10Y_SERIES, cache))
+    rates.update(_collect(POLICY_SERIES, cache))
     return rates
 
 

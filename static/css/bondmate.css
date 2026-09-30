@@ -5,8 +5,13 @@
  *   4. 차트              5. 화면별 규칙          6. 임베드 모드
  *   7. 반응형
  *
- * 테마: 라이트를 :root 에 전부 정의하고, 다크는 토큰만 덮어쓴다. data-theme
- * 속성이 auto 면 시스템 설정(prefers-color-scheme)을 따른다.
+ * 테마: 라이트를 :root 에 전부 정의하고, 다크는 토큰만 덮어쓴다. data-theme 은
+ * head 의 theme-boot 가 칠하기 전에 light/dark 로 못 박는다(없으면 시스템 설정).
+ *
+ * Value Compass 공용 토큰(static/vc-tokens.css, value-invest 에서 벤더링)을 먼저
+ * 읽는다. 1단계로 방향색(--up/--down)과 본문 글꼴만 --vc-* 에 alias 한다 — 금리
+ * 상승 = 빨강, 하락 = 파랑(국내 관행)이고 다크 값도 vc-tokens.css 가 정한다.
+ * 표면·강조색은 아직 자체 값이다.
  */
 
 /* ── 1. 토큰 ───────────────────────────────────────────────────────────── */
@@ -22,8 +27,8 @@
 
   --accent: #2563eb;
   --accent-soft: #dbeafe;
-  --up: #d92d20;      /* 금리 상승 = 붉은색 (국내 관행) */
-  --down: #1570ef;    /* 금리 하락 = 파란색 */
+  --up: var(--vc-up, #d92d20);       /* 금리 상승 = 붉은색 (국내 관행) */
+  --down: var(--vc-down, #1570ef);   /* 금리 하락 = 파란색 */
   --warn: #b54708;
 
   --grid: #e8ebef;
@@ -51,8 +56,6 @@
     --text-faint: #6e7885;
     --accent: #60a5fa;
     --accent-soft: #1e3a5f;
-    --up: #f97066;
-    --down: #53b1fd;
     --warn: #f79009;
     --grid: #242b35;
     --chart-ink: #60a5fa;
@@ -71,8 +74,6 @@
   --text-faint: #6e7885;
   --accent: #60a5fa;
   --accent-soft: #1e3a5f;
-  --up: #f97066;
-  --down: #53b1fd;
   --warn: #f79009;
   --grid: #242b35;
   --chart-ink: #60a5fa;
@@ -86,13 +87,22 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: var(--sans);
+  font-family: var(--vc-font-sans, var(--sans));
   font-size: 14px;
   line-height: 1.5;
   -webkit-text-size-adjust: 100%;
 }
 
 .app { max-width: 1180px; margin: 0 auto; padding: var(--gap); }
+
+/* <vc-shell> 의 light-DOM 폴백 — vc-shell.js 가 뜨면 Shadow DOM 바가 대신 그려진다. */
+vc-shell > .hub-link {
+  display: inline-block;
+  padding: 10px var(--gap);
+  color: var(--accent);
+  font-size: 13px;
+  text-decoration: none;
+}
 
 .app-head {
   background: var(--surface);

@@ -42,5 +42,6 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Check automatic refresh
-        run: node --test tests/frontend-refresh.test.cjs
+      # 자동 갱신(frontend-refresh) + Value Compass 연동(frontend-shell: 테마·iframe 메시지).
+      - name: Check frontend behaviour
+        run: node --test tests/frontend-refresh.test.cjs tests/frontend-shell.test.cjs

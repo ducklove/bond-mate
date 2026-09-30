@@ -77,3 +77,94 @@ def test_임베드_배경은_투명이_기본이_아니다():
     css = (ROOT / "static/css/bondmate.css").read_text(encoding="utf-8")
     assert "body.is-embed { background: var(--bg); }" in css
     assert "body.is-embed.bg-transparent { background: transparent; }" in css
+
+
+# --- Value Compass 에코시스템 (value-invest 에서 벤더링) ---------------------------
+WORKFLOWS = ROOT / ".github" / "workflows"
+BOOT_BLOCK = re.compile(r"<!-- vc:theme-boot -->(.*?)<!-- /vc:theme-boot -->", re.S)
+
+
+def _head() -> str:
+    return _index_html().split("</head>", 1)[0]
+
+
+def test_theme_boot_블록이_스타일시트보다_먼저_인라인으로_있다():
+    head = _head()
+    blocks = BOOT_BLOCK.findall(head)
+    assert len(blocks) == 1, "theme-boot 마커는 head 에 정확히 하나"
+    body = blocks[0]
+    assert "<script>" in body and "localStorage.getItem('theme')" in body
+    assert "'bondmate.theme'" in body, "옛 키를 공용 'theme' 키로 옮긴다"
+    assert head.index("<!-- vc:theme-boot -->") < head.index('rel="stylesheet"')
+
+
+def test_공용_토큰은_자체_CSS보다_먼저_읽는다():
+    head = _head()
+    tokens = head.index('href="./static/vc-tokens.css')
+    assert tokens < head.index('href="static/css/bondmate.css"')
+
+
+def test_vc_shell_스크립트는_defer로_불린다():
+    tags = re.findall(r"<script[^>]*vc-shell\.js[^>]*>", _head())
+    assert len(tags) == 1 and "defer" in tags[0] and 'src="./static/vc-shell.js' in tags[0]
+
+
+def test_벤더링된_파일이_있고_직접_고치지_않는다는_표시가_있다():
+    shell = (ROOT / "static/vc-shell.js").read_text(encoding="utf-8")
+    tokens = (ROOT / "static/vc-tokens.css").read_text(encoding="utf-8")
+    helper = (ROOT / "bondmate/vc_publish.py").read_text(encoding="utf-8")
+    assert "do not edit copies" in shell and '"id":"bond-mate"' in shell
+    assert "--vc-up" in tokens and "--vc-font-sans" in tokens
+    assert helper.startswith("# vendored from value-invest")
+
+
+def test_body_맨_위에_에코시스템_바와_허브_링크_폴백이_있다():
+    body = _index_html().split("<body>", 1)[1].lstrip()
+    assert body.startswith("<!--") or body.startswith("<vc-shell")
+    first_tag = re.search(r"<(?!!--)[a-z-]+[^>]*>", body).group(0)
+    assert first_tag == '<vc-shell tool="bond-mate">'
+    shell = re.search(r'<vc-shell tool="bond-mate">(.*?)</vc-shell>', body, re.S).group(1)
+    assert 'href="https://ducklove.duckdns.org:3691"' in shell and "Value Compass" in shell
+
+
+def test_테마는_공용_키와_VCShell을_쓴다():
+    app_js = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
+    assert "VCShell.setTheme(" in app_js
+    assert "'vc:themechange'" in app_js
+    assert "THEME_KEY = 'theme'" in app_js
+    assert "setItem('bondmate.theme'" not in app_js and "getItem('bondmate.theme'" not in app_js
+
+
+def test_iframe_메시지는_vc_형식과_구_형식을_함께_보낸다():
+    app_js = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
+    for needle in ("type: 'vc:ready'", "type: 'vc:height'", "source: 'bond-mate', type: 'height'",
+                   "type !== 'vc:theme'"):
+        assert needle in app_js, needle
+
+
+def test_탭_라벨은_허브_레지스트리_뷰_라벨과_같다():
+    """value-invest 채권·금리 화면(BM_VIEW_LABELS)과 같은 이름 — '사채'가 아니라 '신용'."""
+    app_js = (ROOT / "static/js/app.js").read_text(encoding="utf-8")
+    labels = dict(re.findall(r"key: '(\w+)', label: '([^']+)'", app_js))
+    assert labels == {
+        "overview": "개요", "government": "국채", "policy": "기준금리",
+        "fx": "환율", "credit": "신용", "issuance": "발행",
+    }
+
+
+def test_방향색과_글꼴은_공용_토큰을_alias_한다():
+    css = (ROOT / "static/css/bondmate.css").read_text(encoding="utf-8")
+    assert "--up: var(--vc-up" in css and "--down: var(--vc-down" in css
+    assert "font-family: var(--vc-font-sans" in css
+    # 다크 방향색은 vc-tokens.css 가 정한다 — 자체 다크 블록에서 덮어쓰면 alias 가 깨진다.
+    assert css.count("--up:") == 1 and css.count("--down:") == 1
+
+
+def test_배포_산출물에_벤더링_파일과_summary가_실린다():
+    deploy = (WORKFLOWS / "deploy.yml").read_text(encoding="utf-8")
+    assert "cp -r static _site/static" in deploy          # static/vc-shell.js·vc-tokens.css 포함
+    assert "_site/" in deploy and "summary.json" in deploy and "version.json" in deploy
+    assert "python3 -m bondmate.summary --data data --out _site" in deploy
+    update = (WORKFLOWS / "update-data.yml").read_text(encoding="utf-8")
+    assert "current rates fx credit issuers summary version" in update
+    assert "steps.generate.outputs.publish" in update

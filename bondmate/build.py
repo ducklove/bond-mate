@@ -6,6 +6,14 @@
     ``fx.json``          환율 히스토리
     ``credit.json``      신용등급별 회사채 수익률·OAS 히스토리
     ``issuers.json``     발행사별 회사채 발행 이력
+    ``summary.json``     value-invest 허브용 요약(Value Compass envelope v1,
+                         :mod:`bondmate.summary`) — ``version.json`` 과 함께
+
+타임스탬프
+    ``generated_at``/``updated_at`` 은 **값이 마지막으로 바뀐 시각**이다. 수집 결과가
+    직전과 같으면(타임스탬프를 뺀 내용이 같으면) 그대로 두고 ``checked_at`` 만
+    새로 찍는다. 그래야 같은 데이터를 다시 받은 실행이 히스토리 파일을 바이트
+    단위로 바꾸지 않고, 워크플로가 커밋·배포를 건너뛸 수 있다(:func:`publish_due`).
 
 소스 우선순위
     같은 시리즈를 여러 소스가 주면 **먼저 얹힌 값이 이긴다**. 순서는
@@ -23,12 +31,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
-from bondmate import catalog, history
+from bondmate import catalog, history, summary
 from bondmate.http import SourceError
 from bondmate.sources import bis, cnbc, ecos, edgar, finance_pi, fred, mof, naver
 
@@ -43,6 +52,22 @@ ISSUERS_FILE = "issuers.json"
 
 # 스냅샷에 실을 최근 발행 건수 (전체 이력은 issuers.json 에 남는다).
 RECENT_OFFERINGS = 40
+
+# 값이 그대로여도 이 간격마다 한 번은 발행한다 — checked_at 이 사이트에 반영돼야
+# 화면의 '수집 지연'(1시간) 표시가 정상 수집을 지연으로 오인하지 않는다.
+# 사이트의 checked_at 나이는 최대 HEARTBEAT + cron 간격(5분) + 실행·배포 시간 +
+# Actions 예약 지연이므로, 1시간 기준에 여유(예약 지연 20분 이상)를 두려고 30분.
+HEARTBEAT = timedelta(minutes=30)
+
+# 내용 비교에서 빼는 스냅샷 키 (시각만 담는다).
+VOLATILE_KEYS = frozenset({"generated_at", "updated_at", "checked_at"})
+
+# 시장별 updated_at 을 가르는 기준 — 스냅샷 섹션과 히스토리 파일.
+MARKET_PARTS = {
+    "rates": (("rates", "curves", "countries"), RATES_FILE),
+    "fx": (("fx",), FX_FILE),
+    "credit": (("credit", "credit_kr"), CREDIT_FILE),
+}
 
 
 # --- 유틸 --------------------------------------------------------------------
@@ -76,6 +101,74 @@ def write_json(path: Path, payload: dict) -> None:
         json.dumps(payload, ensure_ascii=False, separators=(",", ":"), allow_nan=False),
         encoding="utf-8",
     )
+
+
+def _digest(payload) -> str:
+    """타임스탬프를 뺀 내용 비교용 해시(키 순서 무관)."""
+    text = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _without(payload: dict, keys=VOLATILE_KEYS) -> dict:
+    return {k: v for k, v in (payload or {}).items() if k not in keys}
+
+
+def _write_history(path: Path, body: dict, stamp: str) -> bool:
+    """히스토리 파일을 쓴다. 내용이 직전과 같으면 직전 ``generated_at`` 을 유지한다.
+
+    반환값은 내용이 바뀌었는지. 같으면 파일을 아예 다시 쓰지 않는다(바이트 그대로).
+    """
+    previous = read_json(path)
+    changed = _digest(_without(previous)) != _digest(body)
+    if not changed and previous.get("generated_at"):
+        return False
+    write_json(path, {"generated_at": stamp, **body})
+    return True
+
+
+def settle_timestamps(snapshot: dict, previous: dict, files_changed: dict[str, bool]) -> bool:
+    """값이 그대로면 직전 ``generated_at``/``updated_at`` 을 되살리고 ``checked_at`` 을 찍는다.
+
+    ``snapshot["generated_at"]`` 은 이번 실행 시각으로 들어와 있어야 한다.
+    반환값은 발행 내용(스냅샷 또는 히스토리 파일)이 하나라도 바뀌었는지.
+    """
+    now = snapshot["generated_at"]
+    prev_updated = previous.get("updated_at") or {}
+    updated = {}
+    for market, (keys, filename) in MARKET_PARTS.items():
+        changed = files_changed.get(filename, False) or any(
+            _digest(snapshot.get(k)) != _digest(previous.get(k)) for k in keys
+        )
+        updated[market] = prev_updated.get(market) if not changed and prev_updated.get(market) else now
+
+    changed = (
+        any(files_changed.values())
+        or not previous.get("generated_at")
+        or _digest(_without(snapshot)) != _digest(_without(previous))
+    )
+    if not changed:
+        snapshot["generated_at"] = previous["generated_at"]
+    snapshot["updated_at"] = updated
+    snapshot["checked_at"] = now
+    return changed
+
+
+def publish_due(previous: dict, snapshot: dict, *, now: datetime | None = None) -> bool:
+    """이번 결과를 data 브랜치에 커밋·배포해야 하는지.
+
+    내용이 바뀌었거나(``generated_at`` 이 달라짐), 직전 발행의 ``checked_at`` 이
+    :data:`HEARTBEAT` 보다 오래됐을 때만. ``previous`` 는 실행 전의 current.json.
+    """
+    if snapshot.get("generated_at") != previous.get("generated_at"):
+        return True
+    last = previous.get("checked_at") or previous.get("generated_at")
+    try:
+        last_dt = datetime.fromisoformat(str(last).replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if last_dt.tzinfo is None:
+        last_dt = last_dt.replace(tzinfo=UTC)
+    return (now or datetime.now(UTC)) - last_dt >= HEARTBEAT
 
 
 def _round(value: float | None, digits: int = 4) -> float | None:
@@ -378,6 +471,11 @@ def build_highlights(
 
 
 # --- 엔트리포인트 -------------------------------------------------------------
+def _credit_kinds(prev_credit: dict) -> set[str]:
+    """credit.json 의 종류 키(yield·oas·kr_yield …). ``generated_at`` 같은 값은 뺀다."""
+    return {kind for kind, value in (prev_credit or {}).items() if isinstance(value, dict)}
+
+
 def apply_fx_metadata(quotes: dict, metadata: dict, previous: dict) -> None:
     """원본 시세 시각과 전일대비를 붙인다. 오래된 메타데이터로 새 값을 꾸미지 않는다."""
     for pair, quote in quotes.items():
@@ -403,19 +501,22 @@ def refresh_fx(data_dir: Path = DATA_DIR) -> dict:
     previous = read_json(data_dir / FX_FILE).get("series", {})
     stored = {
         pair: history.store(previous.get(pair), incoming.get(pair, {}), today=date.today())
-        for pair in previous.keys() | incoming.keys()
+        for pair in sorted(previous.keys() | incoming.keys())
     }
     fresh = build_snapshot({}, {p: history.decode(v) for p, v in stored.items()}, {}, [], sources={})
     apply_fx_metadata(fresh["fx"], metadata, snapshot.get("fx", {}))
-    snapshot.setdefault("updated_at", {"rates": snapshot["generated_at"],
-                                       "credit": snapshot["generated_at"]})
-    snapshot["updated_at"]["fx"] = fresh["generated_at"]
+    before = json.loads(json.dumps(snapshot))
+    before.setdefault("updated_at", {"rates": snapshot["generated_at"],
+                                     "credit": snapshot["generated_at"],
+                                     "fx": snapshot["generated_at"]})
     snapshot["generated_at"] = fresh["generated_at"]
     snapshot["fx"] = fresh["fx"]
     previous_sources = snapshot.setdefault("sources", {}).get("fx", [])
     snapshot["sources"]["fx"] = list(dict.fromkeys([*previous_sources, *sources]))
-    write_json(data_dir / FX_FILE, {"generated_at": fresh["generated_at"], "series": stored})
+    fx_changed = _write_history(data_dir / FX_FILE, {"series": stored}, fresh["generated_at"])
+    settle_timestamps(snapshot, before, {FX_FILE: fx_changed})
     write_json(data_dir / SNAPSHOT_FILE, snapshot)
+    summary.publish(data_dir, snapshot)
     return snapshot
 
 
@@ -453,26 +554,32 @@ def run(
     prev_credit = read_json(data_dir / CREDIT_FILE)
 
     for series in reset_series:
-        if prev_rates.pop(series, None) is not None or prev_fx.pop(series, None) is not None:
+        dropped = [prev_rates.pop(series, None), prev_fx.pop(series, None)]
+        for kind in _credit_kinds(prev_credit):
+            dropped.append(prev_credit[kind].pop(series, None))
+        if any(d is not None for d in dropped):
             logger.info("%s 히스토리를 버리고 새 소스로 다시 쌓습니다", series)
 
+    # 직전 히스토리와 이번 수집의 **합집합**을 저장한다. 소스 하나가 이번 실행에서
+    # 실패해도(MOF 는 이번 달 CSV 만 주므로 한 번 빠지면 복구가 안 된다) 쌓아 둔
+    # 히스토리가 사라지지 않게 — 환율과 같은 규칙이다. 리셋 대상은 위에서
+    # prev_* 에서 뺐으므로 이번에 다시 받지 못했다면 남지 않는다.
     stored_rates = {
-        series: history.store(prev_rates.get(series), points, today=today)
-        for series, points in rates.items()
+        series: history.store(prev_rates.get(series), rates.get(series, {}), today=today)
+        for series in sorted(prev_rates.keys() | rates.keys())
     }
     stored_fx = {
         series: history.store(prev_fx.get(series), fx.get(series, {}), today=today)
-        for series in prev_fx.keys() | fx.keys()
+        for series in sorted(prev_fx.keys() | fx.keys())
     }
-    stored_credit = {
-        kind: {
-            rating: history.store(
-                (prev_credit.get(kind) or {}).get(rating), points, today=today
-            )
-            for rating, points in by_rating.items()
+    stored_credit: dict[str, dict] = {}
+    for kind in sorted(_credit_kinds(prev_credit) | credit.keys()):
+        prev_by_rating = prev_credit.get(kind) if isinstance(prev_credit.get(kind), dict) else {}
+        new_by_rating = credit.get(kind) or {}
+        stored_credit[kind] = {
+            rating: history.store(prev_by_rating.get(rating), new_by_rating.get(rating, {}), today=today)
+            for rating in sorted(prev_by_rating.keys() | new_by_rating.keys())
         }
-        for kind, by_rating in credit.items()
-    }
 
     if skip_issuers:
         offerings = read_json(data_dir / ISSUERS_FILE).get("offerings", [])
@@ -507,14 +614,17 @@ def run(
     )
 
     stamp = snapshot["generated_at"]
-    snapshot["updated_at"] = {"rates": stamp, "fx": stamp, "credit": stamp}
-    apply_fx_metadata(snapshot["fx"], fx_metadata,
-                      read_json(data_dir / SNAPSHOT_FILE).get("fx", {}))
-    write_json(data_dir / RATES_FILE, {"generated_at": stamp, "series": stored_rates})
-    write_json(data_dir / FX_FILE, {"generated_at": stamp, "series": stored_fx})
-    write_json(data_dir / CREDIT_FILE, {"generated_at": stamp, **stored_credit})
-    write_json(data_dir / ISSUERS_FILE, {"generated_at": stamp, "offerings": offerings})
+    previous = read_json(data_dir / SNAPSHOT_FILE)
+    apply_fx_metadata(snapshot["fx"], fx_metadata, previous.get("fx", {}))
+    files_changed = {
+        RATES_FILE: _write_history(data_dir / RATES_FILE, {"series": stored_rates}, stamp),
+        FX_FILE: _write_history(data_dir / FX_FILE, {"series": stored_fx}, stamp),
+        CREDIT_FILE: _write_history(data_dir / CREDIT_FILE, stored_credit, stamp),
+        ISSUERS_FILE: _write_history(data_dir / ISSUERS_FILE, {"offerings": offerings}, stamp),
+    }
+    settle_timestamps(snapshot, previous, files_changed)
     write_json(data_dir / SNAPSHOT_FILE, snapshot)
+    summary.publish(data_dir, snapshot)
 
     logger.info(
         "완료 — 금리 %d · 환율 %d · 등급 %d · 발행 %d",
