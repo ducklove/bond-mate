@@ -84,7 +84,7 @@ const BMStore = (function () {
     cutoff.setFullYear(cutoff.getFullYear() - years);
     const iso = cutoff.toISOString().slice(0, 10);
     const from = points.findIndex((p) => p[0] >= iso);
-    return from <= 0 ? points : points.slice(from);
+    return from < 0 ? [] : points.slice(from);
   }
 
   function ratesSeries(seriesId) {

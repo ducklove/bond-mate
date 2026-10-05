@@ -11,6 +11,7 @@ const BMRates = (function () {
     CN: '#dc2626', FR: '#0891b2', IT: '#65a30d', ES: '#c026d3', CH: '#64748b',
     CA: '#ea580c', AU: '#0d9488', IN: '#a16207', BR: '#15803d', MX: '#9333ea', ID: '#0369a1',
   };
+  let historyCountry = 'KR';
 
   function countryColor(code) {
     return COUNTRY_COLORS[code] || cssVar('--chart-ink', '#2563eb');
@@ -154,9 +155,11 @@ const BMRates = (function () {
     const countries = Object.keys(snapshot.countries || {}).filter((c) => (curves[c] || []).length);
     const deep = countries.filter((c) => snapshot.countries[c].has_curve);
     const selected = deep.length ? deep.slice(0, 3) : countries.slice(0, 3);
+    const historyCountries = countries.filter((code) => (curves[code] || [])
+      .some((p) => p.maturity > 0 && snapshot.rates?.[p.series_id]?.value != null));
+    if (!historyCountries.includes(historyCountry)) historyCountry = historyCountries[0];
 
-    root.innerHTML =
-      BMViews.sectionHtml(
+    const curveSection = BMViews.sectionHtml(
         '수익률 곡선 비교',
         '국가를 눌러 겹쳐 보세요',
         '<div class="curve-layout">' +
@@ -170,27 +173,29 @@ const BMRates = (function () {
           escapeHtml((snapshot.countries[code].flag || '') + ' ' + snapshot.countries[code].name) +
           '</button>'
         ).join('') + '</span>'
-      ) +
-      BMViews.sectionHtml(
-        '만기별 금리',
-        '타일을 누르면 아래에 히스토리가 나옵니다',
-        '<div class="grid grid-auto" id="gvTiles"></div>' +
-        '<div style="height:12px"></div>' +
-        BMViews.historyPanelHtml('gvHistory', '지표를 선택하세요', '')
-      ) +
+      );
+    root.innerHTML = BMViews.sectionHtml(
+        '국채 히스토리',
+        '국가를 고른 뒤 만기를 선택하세요',
+        BMViews.comparisonPanelHtml('gvHistory',
+          '<div class="selector-head"><span class="selector-label">국가</span>' +
+          '<div class="chip-row" id="gvHistoryCountries">' + historyCountries.map((code) =>
+            '<button class="chip" type="button" data-history-country="' + code + '" aria-pressed="' +
+            (code === historyCountry) + '">' + escapeHtml((snapshot.countries[code].flag || '') + ' ' + snapshot.countries[code].name) + '</button>'
+          ).join('') + '</div></div><div class="tenor-groups" id="gvTiles">' +
+          tilesHtml(snapshot, historyCountry) + '</div>')
+      ) + curveSection +
       BMViews.embedNoteHtml('government');
 
     const chosen = new Set(selected);
     const curveBox = root.querySelector('#gvCurve');
     const legendBox = root.querySelector('#gvLegend');
     const tableBox = root.querySelector('#gvTable');
-    const tilesBox = root.querySelector('#gvTiles');
 
     function refresh() {
       const list = countries.filter((c) => chosen.has(c));
       drawCurves(curveBox, legendBox, snapshot, list);
       tableBox.innerHTML = curveTableHtml(snapshot, list);
-      tilesBox.innerHTML = tilesHtml(snapshot, list);
     }
 
     root.querySelector('#gvCountries').addEventListener('click', (event) => {
@@ -209,23 +214,18 @@ const BMRates = (function () {
 
     refresh();
 
-    const panel = BMViews.bindHistoryPanel(
-      root, 'gvHistory',
-      async (target) => {
-        await BMStore.loadHistory('rates');
-        return BMStore.ratesSeries(target.seriesId);
-      },
-      (v) => v.toFixed(2) + '%'
-    );
-
-    // 첫 화면이 비어 보이지 않게 대표 지표를 미리 띄운다.
-    const first = tilesBox.querySelector('.tile[data-series]');
-    if (panel && first) {
-      panel.select({
-        seriesId: first.dataset.series, kind: 'rates',
-        label: first.dataset.label, digits: 2,
-      });
-    }
+    const initial = snapshot.rates?.[historyCountry + '10Y']?.value != null
+      ? historyCountry + '10Y' : root.querySelector('#gvTiles .tile')?.dataset.series;
+    const panel = BMViews.bindComparisonPanel(root, 'gvHistory', snapshot, 'rates:' + initial);
+    root.querySelector('#gvHistoryCountries').addEventListener('click', (event) => {
+      const chip = event.target.closest('[data-history-country]');
+      if (!chip) return;
+      historyCountry = chip.dataset.historyCountry;
+      root.querySelectorAll('[data-history-country]').forEach((button) =>
+        button.setAttribute('aria-pressed', String(button === chip)));
+      root.querySelector('#gvTiles').innerHTML = tilesHtml(snapshot, historyCountry);
+      panel?.syncSelection();
+    });
 
     BMViews.onResize(refresh);
   }
@@ -254,24 +254,32 @@ const BMRates = (function () {
     return '<table class="data"><thead>' + head + '</thead><tbody>' + body + '</tbody></table>';
   }
 
-  function tilesHtml(snapshot, countries) {
-    const tiles = [];
-    countries.forEach((code) => {
-      (snapshot.curves[code] || []).forEach((point) => {
+  function tilesHtml(snapshot, code) {
+    const groups = [
+      { label: '단기', hint: '1년 이하', accepts: (m) => m <= 1 },
+      { label: '중기', hint: '1년 초과 ~ 7년', accepts: (m) => m > 1 && m <= 7 },
+      { label: '장기', hint: '7년 초과', accepts: (m) => m > 7 },
+    ];
+    const points = (snapshot.curves?.[code] || []).filter((p) => p.maturity > 0)
+      .sort((a, b) => a.maturity - b.maturity);
+    return groups.map((group) => {
+      const tiles = points.filter((point) => group.accepts(point.maturity)).map((point) => {
         const quote = snapshot.rates?.[point.series_id];
-        if (!quote || quote.value == null) return;
-        tiles.push(BMViews.tileHtml({
+        if (!quote || quote.value == null) return '';
+        return BMViews.tileHtml({
           seriesId: point.series_id,
           kind: 'rates',
           label: (snapshot.countries[code].flag || '') + ' ' + snapshot.countries[code].name + ' ' + (point.tenor || ''),
+          displayLabel: point.tenor || maturityLabel(point.maturity),
           valueText: quote.value.toFixed(2),
           change: quote.change,
           date: quote.date,
           digits: 2,
-        }));
-      });
-    });
-    return tiles.join('') || '<div class="empty">표시할 만기가 없습니다.</div>';
+        });
+      }).join('');
+      return tiles ? '<div class="tenor-group"><h3>' + group.label + ' <span>' + group.hint + '</span></h3>' +
+        '<div class="tenor-grid">' + tiles + '</div></div>' : '';
+    }).join('') || '<div class="empty">표시할 만기가 없습니다.</div>';
   }
 
   /* ── 기준금리 ───────────────────────────────────────────────────────── */
@@ -318,30 +326,15 @@ const BMRates = (function () {
       });
     }).join('');
 
-    root.innerHTML =
-      BMViews.sectionHtml('각국 정책금리', '기준금리 높은 순', table) +
-      BMViews.sectionHtml(
+    root.innerHTML = BMViews.sectionHtml(
         '기준금리 히스토리',
-        '국가를 누르면 아래 그래프가 바뀝니다',
-        '<div class="grid grid-auto">' + tiles + '</div>' +
-        '<div style="height:12px"></div>' +
-        BMViews.historyPanelHtml('plHistory', '국가를 선택하세요', '')
-      ) +
+        '기준 항목과 비교 항목을 선택하세요',
+        BMViews.comparisonPanelHtml('plHistory', '<div class="grid grid-auto">' + tiles + '</div>')
+      ) + BMViews.sectionHtml('각국 정책금리', '기준금리 높은 순', table) +
       BMViews.embedNoteHtml('policy');
 
-    const panel = BMViews.bindHistoryPanel(
-      root, 'plHistory',
-      async (target) => {
-        await BMStore.loadHistory('rates');
-        return BMStore.ratesSeries(target.seriesId);
-      },
-      (v) => v.toFixed(2) + '%'
-    );
-
-    const first = root.querySelector('.tile[data-series]');
-    if (panel && first) {
-      panel.select({ seriesId: first.dataset.series, kind: 'rates', label: first.dataset.label, digits: 2 });
-    }
+    const initial = snapshot.rates?.KR_BASE?.value != null ? 'KR_BASE' : root.querySelector('.tile')?.dataset.series;
+    BMViews.bindComparisonPanel(root, 'plHistory', snapshot, 'rates:' + initial);
   }
 
   return { renderOverview, renderGovernment, renderPolicy, countryColor };

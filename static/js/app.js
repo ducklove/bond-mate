@@ -183,9 +183,11 @@
   /** 현재 화면을 다시 그리되 사용자가 고른 통화·국가·기간은 되살린다
    *  (자동 갱신·테마 전환이 보던 화면을 초기화하지 않게). */
   function rerender() {
-    const tile = app.querySelector('.tile[aria-pressed="true"]');
+    // 비교 패널은 두 항목·기간·표시 방식을 자체 복원한다.
+    const comparison = app.querySelector('[data-comparison-panel]');
+    const tile = comparison ? null : app.querySelector('.tile[aria-pressed="true"]');
     const selected = tile ? { series: tile.dataset.series, kind: tile.dataset.kind } : null;
-    const ranges = [...app.querySelectorAll('[data-role="range"] [aria-pressed="true"]')]
+    const ranges = comparison ? [] : [...app.querySelectorAll('[data-role="range"] [aria-pressed="true"]')]
       .map((el) => el.dataset.range);
     const countries = [...app.querySelectorAll('[data-country][aria-pressed="true"]')]
       .map((el) => el.dataset.country);
@@ -200,7 +202,7 @@
     }
     if (selected) [...app.querySelectorAll('.tile')].find((el) =>
       el.dataset.series === selected.series && el.dataset.kind === selected.kind)?.click();
-    app.querySelectorAll('[data-role="range"]').forEach((row, index) => {
+    if (!comparison) app.querySelectorAll('[data-role="range"]').forEach((row, index) => {
       [...row.querySelectorAll('[data-range]')].find((el) => el.dataset.range === ranges[index])?.click();
     });
   }
@@ -213,10 +215,14 @@
       const snapshot = await BMStore.loadSnapshot(true);
       renderStamp(snapshot);
       if (before?.generated_at === snapshot.generated_at) return;
-      const market = activeKey === 'fx' ? 'fx' : activeKey === 'credit' ? 'credit'
-        : ['government', 'policy'].includes(activeKey) ? 'rates' : null;
-      if (market && before?.updated_at?.[market] &&
-          before.updated_at[market] === snapshot.updated_at?.[market]) return;
+      const comparison = app.querySelector('[data-comparison-panel]');
+      const markets = comparison
+        ? [...new Set([...comparison.querySelectorAll('[data-series-slot]')]
+          .map((select) => select.value.split(':')[0]).filter(Boolean))]
+        : [activeKey === 'fx' ? 'fx' : activeKey === 'credit' ? 'credit'
+          : ['government', 'policy'].includes(activeKey) ? 'rates' : null].filter(Boolean);
+      if (markets.length && markets.every((market) => before?.updated_at?.[market] &&
+          before.updated_at[market] === snapshot.updated_at?.[market])) return;
       rerender();
     } catch (error) {
       const stamp = document.getElementById('generatedAt');

@@ -185,3 +185,26 @@ test('stamp shows the last-change times and flags delay from checked_at', async 
   assert.match(env.nodes.generatedAt.textContent, /환율 갱신 .* · 금리 갱신 .* · 확인 /);
   assert.doesNotMatch(env.nodes.generatedAt.textContent, /수집 지연/);
 });
+
+test('government comparison refreshes when only its compared FX data changes', async () => {
+  const env = boot({ search: '?tab=government' });
+  await settle();
+  env.ctx.BMStore.snapshot.updated_at = { rates: 'rates-1', fx: 'fx-1' };
+  const comparison = element({ querySelectorAll: () => [
+    { value: 'rates:KR10Y' }, { value: 'fx:USD_KRW' },
+  ] });
+  env.nodes.app.querySelector = (selector) => selector === '[data-comparison-panel]' ? comparison : null;
+  let revision = 1;
+  env.ctx.BMStore.loadSnapshot = async () => {
+    const next = { ...env.ctx.BMStore.snapshot, generated_at: 'revision-' + revision++,
+      updated_at: { rates: 'rates-1', fx: 'fx-2' } };
+    env.ctx.BMStore.snapshot = next;
+    return next;
+  };
+  env.window.dispatchEvent(new Event('online'));
+  await settle();
+  assert.deepEqual(env.renders, ['government', 'government']);
+  env.window.dispatchEvent(new Event('online'));
+  await settle();
+  assert.deepEqual(env.renders, ['government', 'government'], 'unchanged selected markets do not redraw');
+});

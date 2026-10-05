@@ -132,6 +132,11 @@ const BMChart = (function () {
     if (opts.yZero) vMin = Math.min(0, vMin);
     const scale = niceScale(vMin, vMax, 4);
     const span = Math.max(1, tMax - tMin);
+    // 원화처럼 긴 값도 왼쪽 눈금이 컨테이너 밖으로 밀려나지 않게 한다.
+    for (let value = scale.min; value <= scale.max + scale.step / 2; value += scale.step) {
+      plot.left = Math.max(plot.left, estimateTextWidth(opts.yFormat ? opts.yFormat(value) : value.toFixed(2)) + 8);
+    }
+    plot.width = Math.max(10, width - plot.left - PAD.right);
 
     plot.x = (t) => plot.left + ((t - tMin) / span) * plot.width;
     plot.y = (v) => plot.top + plot.height - ((v - scale.min) / (scale.max - scale.min)) * plot.height;
@@ -208,7 +213,8 @@ const BMChart = (function () {
         rows.push(
           '<div class="tip-row"><span class="tip-swatch" style="background:' + s._color + '"></span>' +
           escapeHtml(s.label || s.key) + ' ' +
-          (opts.yFormat ? opts.yFormat(point[1]) : point[1]) + '</div>'
+          escapeHtml(s.valueFormat ? s.valueFormat(point[1]) : opts.yFormat ? opts.yFormat(point[1]) : point[1]) +
+          ' <span class="tip-date">' + fmtDate(point[0]) + '</span></div>'
         );
       });
       const anchorX = plot.x(Date.parse(anchorDate));
@@ -217,7 +223,9 @@ const BMChart = (function () {
       cross.setAttribute('opacity', 1);
       tip.innerHTML = '<span class="tip-date">' + fmtDate(anchorDate) + '</span>' + rows.join('');
       tip.classList.add('on');
-      tip.style.left = (anchorX / width) * 100 + '%';
+      const tipWidth = tip.offsetWidth;
+      const anchorPx = anchorX / width * box.clientWidth;
+      tip.style.left = Math.max(tipWidth / 2, Math.min(box.clientWidth - tipWidth / 2, anchorPx)) + 'px';
       tip.style.top = (plot.top + 4) + 'px';
     }
 

@@ -9,6 +9,7 @@
 const BMFx = (function () {
   const KRW_ORDER = ['USD_KRW', 'EUR_KRW', 'JPY_KRW', 'CNY_KRW', 'GBP_KRW', 'AUD_KRW', 'CAD_KRW', 'CHF_KRW'];
   const CROSS_ORDER = ['USD_JPY', 'EUR_USD', 'GBP_USD', 'USD_CNY', 'USD_INR', 'USD_BRL', 'USD_MXN', 'USD_IDX'];
+  let activeGroup = 'krw';
 
   // 통화마다 읽는 자릿수가 다르다 — 달러/원은 소수 2자리, 유로/달러는 4자리.
   function digitsFor(pair) {
@@ -43,36 +44,35 @@ const BMFx = (function () {
     const krw = KRW_ORDER.filter((p) => snapshot.fx?.[p]);
     const cross = CROSS_ORDER.filter((p) => snapshot.fx?.[p]);
 
+    if (!krw.length) activeGroup = 'cross';
+    if (!cross.length) activeGroup = 'krw';
     root.innerHTML =
-      BMViews.sectionHtml(
-        '원화 환율',
-        '하나은행 최신 고시 · 5분 간격 수집 · 화면 자동 갱신',
-        '<div class="grid grid-auto">' + tilesHtml(snapshot, krw) + '</div>'
-      ) +
-      (cross.length
-        ? BMViews.sectionHtml('주요 통화쌍', '시장 환율 · 달러지수는 FRED 공표 기준', '<div class="grid grid-auto">' + tilesHtml(snapshot, cross) + '</div>')
-        : '') +
-      BMViews.sectionHtml('히스토리', '', BMViews.historyPanelHtml('fxHistory', '통화쌍을 선택하세요', '')) +
+      BMViews.sectionHtml('환율 히스토리', '원화 환율 · 주요 통화쌍 비교',
+        BMViews.comparisonPanelHtml('fxHistory',
+          '<div class="selector-head"><span class="selector-label">통화 구분</span><div class="chip-row">' +
+          (krw.length ? '<button type="button" class="chip" data-fx-group="krw" aria-pressed="' + (activeGroup === 'krw') + '">원화 환율</button>' : '') +
+          (cross.length ? '<button type="button" class="chip" data-fx-group="cross" aria-pressed="' + (activeGroup === 'cross') + '">주요 통화쌍</button>' : '') +
+          '</div><span class="chart-sub" id="fxGroupNote"></span></div>' +
+          '<div class="grid grid-auto" id="fxTiles"></div>')) +
       BMViews.embedNoteHtml('fx');
 
-    let activeDigits = 2;
-    const panel = BMViews.bindHistoryPanel(
-      root, 'fxHistory',
-      async (target) => {
-        activeDigits = target.digits;
-        await BMStore.loadHistory('fx');
-        return BMStore.fxSeries(target.seriesId);
-      },
-      (v) => fmtNum(v, activeDigits)
-    );
-
-    const first = root.querySelector('.tile[data-series]');
-    if (panel && first) {
-      panel.select({
-        seriesId: first.dataset.series, kind: 'fx',
-        label: first.dataset.label, digits: Number(first.dataset.digits || 2),
-      });
+    function refreshTiles() {
+      root.querySelector('#fxTiles').innerHTML = tilesHtml(snapshot, activeGroup === 'krw' ? krw : cross);
+      root.querySelector('#fxGroupNote').textContent = activeGroup === 'krw'
+        ? '하나은행 최신 고시 · 5분 간격 수집' : '시장 환율 · 달러지수는 FRED 공표 기준';
+      root.querySelectorAll('[data-fx-group]').forEach((button) =>
+        button.setAttribute('aria-pressed', String(button.dataset.fxGroup === activeGroup)));
     }
+    refreshTiles();
+    const panel = BMViews.bindComparisonPanel(root, 'fxHistory', snapshot, 'fx:' + (krw[0] || cross[0]));
+    root.querySelector('#fxHistory').addEventListener('click', (event) => {
+      const chip = event.target.closest('[data-fx-group]');
+      if (!chip) return;
+      activeGroup = chip.dataset.fxGroup;
+      refreshTiles();
+      panel?.syncSelection();
+    });
+
   }
 
   return { render, digitsFor };
