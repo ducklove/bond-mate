@@ -289,7 +289,10 @@ const BMRates = (function () {
         const base = snapshot.rates?.[code + '_BASE'];
         const overnight = snapshot.rates?.[code + '_ON'];
         const ten = snapshot.rates?.[code + '10Y'];
-        return base || overnight ? { code, meta: snapshot.countries[code], base, overnight, ten } : null;
+        const meta = snapshot.countries[code];
+        const name = (meta.flag || '') + ' ' + meta.name;
+        const label = base?.instrument ? name + ' · ' + base.instrument : name;
+        return base || overnight ? { code, label, base, overnight, ten } : null;
       })
       .filter(Boolean)
       .sort((a, b) => (b.base?.value ?? -99) - (a.base?.value ?? -99));
@@ -302,7 +305,7 @@ const BMRates = (function () {
         const spread = row.ten?.value != null && row.base?.value != null
           ? toBp(row.ten.value - row.base.value) : null;
         return '<tr>' +
-          '<td class="text">' + escapeHtml((row.meta.flag || '') + ' ' + row.meta.name) + '</td>' +
+          '<td class="text">' + escapeHtml(row.label) + '</td>' +
           '<td class="num">' + escapeHtml(fmtPct(row.base?.value, 2)) + '</td>' +
           '<td class="num">' + escapeHtml(fmtPct(row.overnight?.value, 2)) + '</td>' +
           '<td class="num">' + escapeHtml(fmtPct(row.ten?.value, 2)) + '</td>' +
@@ -318,7 +321,7 @@ const BMRates = (function () {
       return BMViews.tileHtml({
         seriesId: row.code + '_BASE',
         kind: 'rates',
-        label: (row.meta.flag || '') + ' ' + row.meta.name,
+        label: row.label,
         valueText: base.value.toFixed(2),
         change: base.change,
         date: base.date,

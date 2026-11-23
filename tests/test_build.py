@@ -3,6 +3,7 @@
 import pytest
 
 from bondmate import build, catalog
+from bondmate.http import SourceError
 
 
 def test_underlay는_기존_값을_지킨다():
@@ -264,6 +265,44 @@ def test_이번에_빠진_금리_시리즈도_직전_히스토리를_유지한�
     # 스냅샷에도 남아 허브 패널이 한 번의 실패로 비지 않는다.
     assert snapshot["rates"]["JP1Y"]["value"] == 0.72
     assert snapshot["rates"]["JP1Y"]["date"] == "2026-08-18"
+
+
+def test_중국_기준금리는_기존_LPR을_대체하고_수집_실패에도_공식값을_유지한다(tmp_path, monkeypatch):
+    build.write_json(tmp_path / build.RATES_FILE, {"series": {
+        "CN_BASE": {"d": ["2026-11-02", "2026-11-24"], "v": [3.0, 3.0]},
+    }})
+    monkeypatch.setattr(build.finance_pi, "probe", lambda: True)
+    monkeypatch.setattr(build.finance_pi, "collect_rates", lambda: {"CN_BASE": {"2026-11-24": 3.0}})
+    monkeypatch.setattr(build.ecos, "enabled", lambda: False)
+    monkeypatch.setattr(build.bis, "collect", dict)
+    monkeypatch.setattr(build.mof, "collect", dict)
+    monkeypatch.setattr(build.fred, "collect_rates", dict)
+    monkeypatch.setattr(build.cnbc, "fetch_quotes", dict)
+    monkeypatch.setattr(build, "collect_fx", lambda **kw: ({}, []))
+    monkeypatch.setattr(build, "collect_credit", lambda kr: ({}, []))
+
+    def collect(since):
+        assert since == "2026-11-02"
+        return {"2026-11-02": 1.25, "2026-11-23": 1.25}
+
+    monkeypatch.setattr(build.pboc, "collect", collect)
+    snapshot = build.run(tmp_path, skip_issuers=True)
+    quote = snapshot["rates"]["CN_BASE"]
+    assert quote["value"] == 1.25
+    assert quote["date"] == "2026-11-23"
+    assert quote["instrument"] == "익일 역레포"
+    stored = build.read_json(tmp_path / build.RATES_FILE)["series"]["CN_BASE"]
+    assert stored == {"d": ["2026-11-02", "2026-11-23"], "v": [1.25, 1.25], "source": build.pboc.SOURCE}
+    assert build.read_json(tmp_path / "summary.json")["data"]["rates"]["CN_BASE"]["value"] == 1.25
+
+    def fail(since):
+        assert since == "2026-11-23"
+        raise SourceError("원본 장애")
+
+    monkeypatch.setattr(build.pboc, "collect", fail)
+    snapshot = build.run(tmp_path, skip_issuers=True)
+    assert snapshot["rates"]["CN_BASE"] == quote
+    assert "pboc" in snapshot["sources"]["rates"]
 
 
 def test_등급별_회사채_수집이_실패해도_직전_히스토리를_유지한다(tmp_path, monkeypatch):

@@ -41,10 +41,14 @@
 6. **CNBC / 네이버** — 오늘자 시세만. 위 소스가 아직 못 따라온 최근 하루를 덮어쓴다.
 7. **SEC EDGAR** — 회사채 발행 조건(FWP pricing term sheet).
 
+중국 기준금리(`CN_BASE`)는 [중국 인민은행 공개시장 거래 공고](https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html)의
+익일 역레포 고정금리를 사용한다. 차트는 이 금리가 주요 정책금리가 된 2026년 11월 2일부터 표시한다.
+기존 BIS 중국 시리즈의 1년 대출우대금리(LPR) 이력은 이 차트에서 제외한다.
+
 > 정책금리 담당을 FRED 와 BIS 로 나눠 둔 이유: 같은 국가를 둘 다 다루면 어느 값이
 > 나올지 순서에 좌우된다. 미국은 관행상 FF 목표 상단(3.75)이고 BIS 는 실효금리
 > (3.62)라 정의부터 다르고, 영국은 FRED 의 `IUDSOIA` 가 Bank Rate 가 아니라
-> SONIA 다. 그래서 미국·유로존은 FRED, 나머지는 BIS 로 못 박고 테스트로 고정했다.
+> SONIA 다. 미국·유로존은 FRED, 중국은 인민은행을 쓰고 나머지 주요국은 BIS로 보완한다.
 
 > **finance-pi 현재 상태(2026-08-29 확인)**: 공개 엔드포인트가 관리자 토큰을
 > 요구하고(401), LAN 에서 응답하지만 `macro.rates` 가 2026-07-17 에서 멈춰 있다
@@ -226,7 +230,7 @@ bondmate/
   build.py        수집 → 병합 → published JSON 조립
   history.py      히스토리 저장 포맷·해상도 축소
   http.py         공유 세션·재시도·User-Agent
-  sources/        finance_pi · ecos · bis · mof · fred · cnbc · naver · edgar
+  sources/        finance_pi · ecos · bis · pboc · mof · fred · cnbc · naver · edgar
   summary.py      허브용 summary.json (Value Compass envelope, requests 불필요)
   vc_publish.py   [벤더링] envelope·해시 헬퍼 — value-invest 에서 복사, 직접 고치지 않는다
 templates/        index.html (배포 시 _site 로 조립)

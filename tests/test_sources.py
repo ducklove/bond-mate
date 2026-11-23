@@ -3,7 +3,7 @@
 import pytest
 
 from bondmate.http import SourceError
-from bondmate.sources import bis, cnbc, ecos, finance_pi, fred, mof, naver
+from bondmate.sources import bis, cnbc, ecos, finance_pi, fred, mof, naver, pboc
 
 # --- FRED --------------------------------------------------------------------
 
@@ -232,6 +232,7 @@ def test_BIS_CSV에서_관심국가만_추린다():
         "D,JP,2026-08-25,1.00\n"
         "D,XM,2026-08-25,2.25\n"      # 유로존은 FRED(ECBDFR)가 맡는다
         "D,US,2026-08-25,3.62\n"      # 미국도 FRED(DFEDTARU)가 맡는다
+        "D,CN,2026-11-17,3.00\n"     # BIS 중국 시리즈는 1년 LPR이다
         "D,GB,2026-08-24,\n"          # 결측
     )
     parsed = bis.parse_csv(csv)
@@ -239,12 +240,10 @@ def test_BIS_CSV에서_관심국가만_추린다():
     assert parsed == {"KR_BASE": {"2026-08-03": 2.75}, "JP_BASE": {"2026-08-25": 1.00}}
 
 
-def test_BIS는_미국과_유로존을_다루지_않는다():
-    """관행적 '기준금리' 정의가 달라(미국은 FF 목표 상단) FRED 가 맡는다."""
-    assert "US" not in bis.REF_AREAS
-    assert "XM" not in bis.REF_AREAS
+def test_BIS에서_기준금리_정의가_다른_국가는_별도_소스를_쓴다():
+    assert {"US", "XM", "CN"}.isdisjoint(bis.REF_AREAS)
     # 대신 FRED 가 정책금리로 다루지 않는 나라들을 메운다.
-    assert {"JP", "GB", "AU", "CN", "CA", "CH", "IN", "ID", "BR", "MX"} <= set(bis.REF_AREAS)
+    assert {"JP", "GB", "AU", "CA", "CH", "IN", "ID", "BR", "MX"} <= set(bis.REF_AREAS)
 
 
 def test_FRED와_BIS의_정책금리_담당이_겹치지_않는다():
@@ -253,3 +252,33 @@ def test_FRED와_BIS의_정책금리_담당이_겹치지_않는다():
     bis_countries = {code.removesuffix("_BASE") for code in bis.REF_AREAS.values()}
 
     assert fred_countries.isdisjoint(bis_countries)
+
+
+@pytest.mark.parametrize("rate", ["1.25", "1.15"])
+def test_PBOC_혼합_공고에서_익일_고정금리만_읽는다(rate):
+    html = (f'<meta name="Description" content="以固定利率、数量招标方式开展隔夜期逆回购操作。'
+            f'隔夜逆回购操作情况期限操作利率投标量中标量隔夜{rate}%4995亿元。'
+            '同时以固定数量、利率招标、多重价位中标方式开展了7天期逆回购操作，利率1.40%。">')
+    assert pboc.parse_rate(html) == float(rate)
+    assert pboc.parse_rate('<meta name="Description" content="固定利率、数量招标开展7天期逆回购操作">') is None
+    assert pboc.parse_rate(html.replace("开展隔夜期", "开展临时隔夜期")) is None
+
+
+def test_PBOC_전환일_이후_공고만_페이지를_넘겨_수집한다(monkeypatch):
+    path = pboc.NOTICE_PATH
+    first = path + "2026112309000142020/index.html"
+    second = path + "2026110208540841613/index.html"
+
+    def link(notice, day):
+        return f'<font><a href="{notice}">公开市场业务交易公告</a></font><span>{day}</span>'
+
+    notice = ('<meta name="Description" content="固定利率、数量招标开展隔夜逆回购操作。'
+              '隔夜逆回购操作情况期限操作利率投标量中标量隔夜1.25%4995亿元">')
+    pages = {
+        path + "index.html": link(first, "2026-11-23") + f'<a tagname="{path}17081-2.html">下一页</a>',
+        path + "17081-2.html": link(second, "2026-11-02") + link(path + "1/index.html", "2026-10-30"),
+        first: notice,
+        second: notice,
+    }
+    monkeypatch.setattr(pboc, "_notice_html", pages.__getitem__)
+    assert pboc.collect() == {"2026-11-23": 1.25, "2026-11-02": 1.25}

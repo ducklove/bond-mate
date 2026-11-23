@@ -94,9 +94,10 @@ const BMViews = (function () {
             group: '국채 · ' + country.name, unit: '%', digits: 2 });
         });
       ['_BASE', '_ON'].forEach((suffix) => {
-        if (snapshot.rates?.[code + suffix]?.value == null) return;
+        const quote = snapshot.rates?.[code + suffix];
+        if (quote?.value == null) return;
         catalog.push({ seriesId: code + suffix, kind: 'rates',
-          label: name + (suffix === '_BASE' ? ' 기준금리' : ' 익일물'),
+          label: name + ' ' + (quote.instrument || (suffix === '_BASE' ? '기준금리' : '익일물')),
           group: '기준금리 · ' + country.name, unit: '%', digits: 2 });
       });
     });

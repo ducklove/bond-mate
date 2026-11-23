@@ -41,6 +41,7 @@ _DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 # snapshot.sources 의 id → 사람이 읽는 이름·주소.
 SOURCE_NAMES = {
+    "pboc": ("중국 인민은행 익일 역레포", "https://www.pbc.gov.cn/zhengcehuobisi/125207/125213/125431/125475/index.html"),
     "finance-pi": ("finance-pi", None),
     "ecos": ("한국은행 ECOS", "https://ecos.bok.or.kr/"),
     "bis": ("BIS 중앙은행 정책금리", "https://data.bis.org/"),

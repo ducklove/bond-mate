@@ -27,6 +27,7 @@
 
     CNBC 와 (환율의) 네이버만 예외적으로 덮어쓴다. 나머지가 며칠 지연될 때
     스냅샷이 낡아 보이는 걸 막기 위해서다.
+    중국 정책금리는 중국 인민은행의 익일 역레포 공고에서만 받는다.
 """
 
 from __future__ import annotations
@@ -39,7 +40,7 @@ from pathlib import Path
 
 from bondmate import catalog, history, summary
 from bondmate.http import SourceError
-from bondmate.sources import bis, cnbc, ecos, edgar, finance_pi, fred, mof, naver
+from bondmate.sources import bis, cnbc, ecos, edgar, finance_pi, fred, mof, naver, pboc
 
 logger = logging.getLogger(__name__)
 
@@ -178,7 +179,7 @@ def _round(value: float | None, digits: int = 4) -> float | None:
 
 # --- 수집 --------------------------------------------------------------------
 def collect_rates(
-    *, use_finance_pi: bool = False
+    *, use_finance_pi: bool = False, china_since: str = pboc.START_DATE
 ) -> tuple[dict[str, dict[str, float]], dict[str, dict[str, float]], list[str]]:
     """``(국채·정책금리, 한국 등급별 회사채, 사용한 소스들)``."""
     merged: dict[str, dict[str, float]] = {}
@@ -221,6 +222,13 @@ def collect_rates(
         used.append("cnbc")
     except SourceError as exc:
         logger.warning("cnbc 실패 — %s", exc)
+
+    merged.pop(pboc.SERIES, None)
+    try:
+        merged[pboc.SERIES] = pboc.collect(china_since)
+        used.append("pboc")
+    except SourceError as exc:
+        logger.warning("PBOC 익일 역레포 수집 실패 — %s", exc)
 
     return merged, kr_credit, used
 
@@ -316,6 +324,9 @@ def _quote(points: dict[str, float], decimals: int = 4) -> dict | None:
 
 def _rate_meta(series_id: str) -> dict:
     """``US10Y`` → 국가·만기 메타. 카탈로그 규약에 맞춰 되돌린다."""
+    if series_id == pboc.SERIES:
+        return {"country": "CN", "tenor": "기준금리", "maturity": catalog.POLICY_MATURITY,
+                "instrument": "익일 역레포"}
     for country in catalog.COUNTRIES:
         if not series_id.startswith(country):
             continue
@@ -544,12 +555,20 @@ def run(
     # 프로브는 한 번만 — 금리·환율 수집이 같은 판단을 공유한다.
     use_finance_pi = finance_pi.probe()
 
-    rates, kr_credit, rate_sources = collect_rates(use_finance_pi=use_finance_pi)
+    prev_rates = read_json(data_dir / RATES_FILE).get("series", {})
+    # 기존 BIS LPR 데이터는 같은 ID를 쓰므로, 공식 익일 역레포 이력만 이어받는다.
+    china_history = prev_rates.get(pboc.SERIES)
+    if not isinstance(china_history, dict) or china_history.get("source") != pboc.SOURCE:
+        prev_rates.pop(pboc.SERIES, None)
+    china_since = pboc.START_DATE
+    if pboc.SERIES not in reset_series:
+        china_since = max(history.decode(prev_rates.get(pboc.SERIES)), default=pboc.START_DATE)
+
+    rates, kr_credit, rate_sources = collect_rates(use_finance_pi=use_finance_pi, china_since=china_since)
     fx_metadata: dict[str, dict] = {}
     fx, fx_sources = collect_fx(use_finance_pi=use_finance_pi, quote_metadata=fx_metadata)
     credit, credit_sources = collect_credit(kr_credit)
 
-    prev_rates = read_json(data_dir / RATES_FILE).get("series", {})
     prev_fx = read_json(data_dir / FX_FILE).get("series", {})
     prev_credit = read_json(data_dir / CREDIT_FILE)
 
@@ -568,6 +587,10 @@ def run(
         series: history.store(prev_rates.get(series), rates.get(series, {}), today=today)
         for series in sorted(prev_rates.keys() | rates.keys())
     }
+    if pboc.SERIES in stored_rates:
+        stored_rates[pboc.SERIES]["source"] = pboc.SOURCE
+        if "pboc" not in rate_sources:
+            rate_sources.append("pboc")
     stored_fx = {
         series: history.store(prev_fx.get(series), fx.get(series, {}), today=today)
         for series in sorted(prev_fx.keys() | fx.keys())

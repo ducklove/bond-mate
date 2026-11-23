@@ -29,13 +29,13 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://stats.bis.org/api/v2/data/dataflow/BIS/WS_CBPOL/1.0"
 
 # BIS REF_AREA → bond-mate 시리즈 ID.
-# XM(유로존)·US 는 FRED 가 맡으므로 제외. 한국은 ECOS 가 우선이고 여기는 폴백.
+# XM(유로존)·US 는 FRED 가 맡고, CN 의 BIS 시리즈는 1년 LPR 이라 제외.
+# 한국은 ECOS 가 우선이고 여기는 폴백.
 REF_AREAS = {
     "KR": "KR_BASE",
     "JP": "JP_BASE",
     "GB": "GB_BASE",
     "AU": "AU_BASE",
-    "CN": "CN_BASE",
     "CH": "CH_BASE",
     "CA": "CA_BASE",
     "IN": "IN_BASE",
